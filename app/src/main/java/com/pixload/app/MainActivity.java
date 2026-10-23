@@ -9,6 +9,7 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
+import android.graphics.Rect;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -18,11 +19,15 @@ import android.provider.DocumentsContract;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.view.Gravity;
+import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewConfiguration;
+import android.view.animation.DecelerateInterpolator;
 import android.view.inputmethod.InputMethodManager;
 import android.webkit.CookieManager;
 import android.widget.CheckBox;
 import android.widget.EditText;
+import android.widget.HorizontalScrollView;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
@@ -58,6 +63,7 @@ public class MainActivity extends Activity {
     };
     private final List<CheckBox> pageChecks = new ArrayList<>();
     private LinearLayout root;
+    private boolean fadeNextTab;
     private LinearLayout content;
     private LinearLayout bottom;
     private ScrollView scroll;
@@ -88,6 +94,15 @@ public class MainActivity extends Activity {
     private String galleryError;
     private int galleryIndex;
     private VideoView galleryVideo;
+    private View fullscreenMedia;
+    private boolean galleryFullscreen;
+    private int galleryScrollY;
+    private boolean galleryListRendered;
+    private boolean galleryScrollPending;
+    private float swipeStartX;
+    private float swipeStartY;
+    private boolean swipeEligible;
+    private boolean swiping;
     private String lastGalleryStatusUri = "";
 
     @Override public void onCreate(Bundle state) {
@@ -108,9 +123,12 @@ public class MainActivity extends Activity {
             selectedPages = state.getBooleanArray("pages");
             downloadAfterFolderPick = state.getBoolean("downloadAfterFolderPick");
             galleryIndex = state.getInt("galleryIndex", 0);
+            galleryScrollY = state.getInt("galleryScrollY", 0);
+            galleryFullscreen = state.getBoolean("galleryFullscreen");
             try { galleryEntry = GalleryStore.find(this, state.getString("galleryEntry", "")); }
             catch (IllegalStateException ignored) { galleryEntry = null; }
             galleryLoading = galleryEntry != null;
+            if (galleryEntry == null) galleryFullscreen = false;
             Object retained = getLastNonConfigurationInstance();
             if (retained instanceof PixivClient.Work) work = (PixivClient.Work) retained;
         }
@@ -131,6 +149,9 @@ public class MainActivity extends Activity {
         state.putBoolean("downloadAfterFolderPick", downloadAfterFolderPick);
         state.putString("galleryEntry", galleryEntry == null ? "" : galleryEntry.uri);
         state.putInt("galleryIndex", galleryIndex);
+        if (galleryListRendered && !galleryScrollPending && scroll != null) galleryScrollY = scroll.getScrollY();
+        state.putInt("galleryScrollY", galleryScrollY);
+        state.putBoolean("galleryFullscreen", galleryFullscreen);
         super.onSaveInstanceState(state);
     }
 
@@ -154,6 +175,9 @@ public class MainActivity extends Activity {
     }
 
     private void render() {
+        if (galleryListRendered && !galleryScrollPending && scroll != null) galleryScrollY = scroll.getScrollY();
+        galleryListRendered = false;
+        galleryScrollPending = false;
         images.clear();
         galleryImages.clear();
         if (galleryVideo != null) { galleryVideo.stopPlayback(); galleryVideo = null; }
@@ -163,9 +187,24 @@ public class MainActivity extends Activity {
         progressOpen = null;
         progressBar = null;
         progressPanel = null;
+        boolean fade = fadeNextTab;
+        fadeNextTab = false;
         root = Ui.column(this);
         root.setBackgroundColor(Ui.BACK);
+        if (fade) root.setAlpha(.92f);
         setContentView(root);
+        if (fade) root.animate().alpha(1f).setDuration(260)
+                .setInterpolator(new DecelerateInterpolator()).start();
+        getWindow().getDecorView().setSystemUiVisibility(galleryFullscreen
+                ? View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                    | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                    | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                : 0);
+        if (galleryFullscreen && tab == 2 && galleryEntry != null) {
+            scroll = null;
+            fullscreenGallery();
+            return;
+        }
         header();
         scroll = new ScrollView(this);
         scroll.setOnScrollChangeListener((view, left, top, oldLeft, oldTop) -> {
@@ -189,6 +228,18 @@ public class MainActivity extends Activity {
         refreshProgress();
         scroll.post(images::loadVisible);
         scroll.post(galleryImages::loadVisible);
+        if (tab == 2 && galleryEntry == null) {
+            galleryListRendered = true;
+            galleryScrollPending = true;
+            ScrollView target = scroll;
+            target.post(() -> {
+                if (scroll == target && tab == 2 && galleryEntry == null) {
+                    target.scrollTo(0, galleryScrollY);
+                    galleryScrollPending = false;
+                    galleryImages.loadVisible();
+                }
+            });
+        }
     }
 
     private void header() {
@@ -353,11 +404,78 @@ public class MainActivity extends Activity {
         return clearedPreview && tab == 1;
     }
 
+    @Override public boolean dispatchTouchEvent(MotionEvent event) {
+        int action = event.getActionMasked();
+        if (action == MotionEvent.ACTION_DOWN) {
+            swipeStartX = event.getRawX();
+            swipeStartY = event.getRawY();
+            swiping = false;
+            View area = galleryFullscreen ? fullscreenMedia : scroll;
+            swipeEligible = area != null && (galleryFullscreen ? galleryItems != null && galleryItems.size() > 1
+                    : galleryEntry == null) && containsTouch(area, event)
+                    && !touchesGestureControl(area, event);
+        } else if (action == MotionEvent.ACTION_MOVE && swipeEligible && !swiping) {
+            float dx = event.getRawX() - swipeStartX;
+            float dy = event.getRawY() - swipeStartY;
+            int slop = ViewConfiguration.get(this).getScaledTouchSlop();
+            if (Math.abs(dy) > slop && Math.abs(dy) > Math.abs(dx)) swipeEligible = false;
+            else if (Math.abs(dx) > Math.max(Ui.dp(this, 56), slop * 3)
+                    && Math.abs(dx) > Math.abs(dy) * 1.4f) {
+                int direction = dx < 0 ? 1 : -1;
+                boolean canMove = galleryFullscreen ? galleryIndex + direction >= 0
+                        && galleryIndex + direction < galleryItems.size()
+                        : tab + direction >= 0 && tab + direction <= 3;
+                if (canMove) {
+                    swiping = true;
+                    MotionEvent cancel = MotionEvent.obtain(event);
+                    cancel.setAction(MotionEvent.ACTION_CANCEL);
+                    super.dispatchTouchEvent(cancel);
+                    cancel.recycle();
+                } else swipeEligible = false;
+            }
+        }
+        if (swiping) {
+            if (action == MotionEvent.ACTION_UP) {
+                int direction = event.getRawX() < swipeStartX ? 1 : -1;
+                if (galleryFullscreen) selectGalleryItem(galleryIndex + direction);
+                else switchTab(tab + direction);
+                swiping = false;
+                swipeEligible = false;
+            } else if (action == MotionEvent.ACTION_CANCEL) {
+                swiping = false;
+                swipeEligible = false;
+            }
+            return true;
+        }
+        if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) swipeEligible = false;
+        return super.dispatchTouchEvent(event);
+    }
+
+    private boolean containsTouch(View view, MotionEvent event) {
+        Rect rect = new Rect();
+        return view.isShown() && view.getGlobalVisibleRect(rect)
+                && rect.contains((int) event.getRawX(), (int) event.getRawY());
+    }
+
+    private boolean touchesGestureControl(View view, MotionEvent event) {
+        if (!containsTouch(view, event)) return false;
+        if (view instanceof HorizontalScrollView || view instanceof EditText || view instanceof VideoView
+                || !galleryFullscreen && view instanceof TextView && ((TextView) view).isTextSelectable()) return true;
+        if (view instanceof android.view.ViewGroup) {
+            android.view.ViewGroup group = (android.view.ViewGroup) view;
+            for (int i = group.getChildCount() - 1; i >= 0; i--)
+                if (touchesGestureControl(group.getChildAt(i), event)) return true;
+        }
+        return false;
+    }
+
     private void switchTab(int target) {
+        fadeNextTab = target != tab;
         if (link != null) linkValue = link.getText().toString();
         syncSelection();
         galleryEntry = null;
         galleryItems = null;
+        galleryFullscreen = false;
         tab = target;
         render();
     }
@@ -417,18 +535,16 @@ public class MainActivity extends Activity {
                     });
                 }
                 Ui.gap(card, this, 7);
-                LinearLayout delete = Ui.row(this);
-                delete.setGravity(Gravity.END);
-                delete.setPadding(0, Ui.dp(this, 8), Ui.dp(this, 6), Ui.dp(this, 8));
-                delete.addView(Ui.icon(this, R.drawable.tabler_trash, Ui.MUTED),
-                        new LinearLayout.LayoutParams(Ui.dp(this, 17), Ui.dp(this, 17)));
-                TextView deleteLabel = Ui.text(this, "Eliminar", 12, Ui.MUTED, true);
-                LinearLayout.LayoutParams deleteText = new LinearLayout.LayoutParams(-2, -2);
-                deleteText.leftMargin = Ui.dp(this, 4);
-                delete.addView(deleteLabel, deleteText);
-                delete.setOnClickListener(view -> confirmDelete(entry));
+                LinearLayout actions = Ui.row(this);
+                actions.setGravity(Gravity.END);
+                ImageView share = Ui.plainIconAction(this, R.drawable.tabler_share, () -> shareGalleryEntry(entry));
+                share.setContentDescription("Compartir " + entry.title);
+                actions.addView(share, new LinearLayout.LayoutParams(Ui.dp(this, 44), Ui.dp(this, 44)));
+                ImageView delete = Ui.plainIconAction(this, R.drawable.tabler_trash, Ui.DANGER,
+                        () -> confirmDelete(entry));
                 delete.setContentDescription("Eliminar " + entry.title);
-                card.addView(delete);
+                actions.addView(delete, new LinearLayout.LayoutParams(Ui.dp(this, 44), Ui.dp(this, 44)));
+                card.addView(actions);
                 card.setOnClickListener(view -> loadGalleryEntry(entry, 0));
                 LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, -2, 1);
                 if (j == i) params.rightMargin = Ui.dp(this, 8);
@@ -440,6 +556,7 @@ public class MainActivity extends Activity {
     }
 
     private void loadGalleryEntry(GalleryStore.Entry entry, int index) {
+        if (galleryListRendered && !galleryScrollPending && scroll != null) galleryScrollY = scroll.getScrollY();
         galleryEntry = entry;
         galleryItems = null;
         galleryLoading = true;
@@ -474,11 +591,91 @@ public class MainActivity extends Activity {
         });
     }
 
+    private void fullscreenGallery() {
+        LinearLayout toolbar = Ui.row(this);
+        toolbar.setPadding(Ui.dp(this, 12), Ui.dp(this, 8), Ui.dp(this, 12), Ui.dp(this, 8));
+        String title = galleryItems != null && !galleryItems.isEmpty()
+                ? galleryItems.get(galleryIndex).name : galleryEntry.title;
+        TextView heading = Ui.text(this, title, 16, Ui.WHITE, true);
+        heading.setSingleLine(true);
+        heading.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        LinearLayout.LayoutParams headingParams = new LinearLayout.LayoutParams(0, -2, 1);
+        headingParams.leftMargin = Ui.dp(this, 12);
+        toolbar.addView(heading, headingParams);
+        ImageView close = Ui.plainIconAction(this, R.drawable.tabler_x, () -> {
+            galleryFullscreen = false;
+            render();
+        });
+        close.setContentDescription("Salir de pantalla completa");
+        toolbar.addView(close, new LinearLayout.LayoutParams(Ui.dp(this, 48), Ui.dp(this, 48)));
+        root.addView(toolbar);
+        fullscreenMedia = null;
+        if (galleryLoading || galleryItems == null || galleryItems.isEmpty() || galleryError != null) {
+            TextView state = Ui.text(this, galleryError != null ? galleryError
+                    : galleryLoading ? "Cargando archivos…" : "Esta carpeta está vacía.", 15, Ui.MUTED, false);
+            state.setGravity(Gravity.CENTER);
+            root.addView(state, new LinearLayout.LayoutParams(-1, 0, 1));
+            return;
+        }
+        GalleryDocuments.Item item = galleryItems.get(galleryIndex);
+        boolean text = (item.mime != null && item.mime.startsWith("text/"))
+                || item.name.toLowerCase(Locale.ROOT).endsWith(".txt");
+        LinearLayout viewer = Ui.column(this);
+        if (text) {
+            ScrollView reader = new ScrollView(this);
+            reader.setFillViewport(true);
+            reader.setPadding(Ui.dp(this, 12), 0, Ui.dp(this, 12), 0);
+            reader.addView(viewer);
+            root.addView(reader, new LinearLayout.LayoutParams(-1, 0, 1));
+            fullscreenMedia = reader;
+        } else {
+            root.addView(viewer, new LinearLayout.LayoutParams(-1, 0, 1));
+            fullscreenMedia = viewer;
+        }
+        galleryVideo = GalleryViewer.show(this, viewer, item, galleryIO, -1);
+        if (galleryItems.size() > 1) {
+            TextView counter = Ui.text(this, (galleryIndex + 1) + " / " + galleryItems.size(), 13, Ui.CYAN, true);
+            counter.setGravity(Gravity.CENTER);
+            root.addView(counter);
+            HorizontalScrollView strip = new HorizontalScrollView(this);
+            strip.setHorizontalScrollBarEnabled(false);
+            strip.setFillViewport(false);
+            LinearLayout thumbnails = Ui.row(this);
+            thumbnails.setPadding(Ui.dp(this, 12), Ui.dp(this, 8), Ui.dp(this, 12), Ui.dp(this, 12));
+            strip.addView(thumbnails);
+            View selectedTile = null;
+            for (int i = 0; i < galleryItems.size(); i++) {
+                int selected = i;
+                GalleryDocuments.Item child = galleryItems.get(i);
+                LinearLayout tile = Ui.column(this);
+                tile.setPadding(Ui.dp(this, 3), Ui.dp(this, 3), Ui.dp(this, 3), Ui.dp(this, 3));
+                tile.setBackground(Ui.outlined(this, i == galleryIndex ? Ui.BLUE : Ui.PANEL, 10));
+                tile.addView(galleryImages.tile(child.uri.toString(), child.mime, 72),
+                        new LinearLayout.LayoutParams(Ui.dp(this, 72), Ui.dp(this, 72)));
+                tile.setContentDescription("Archivo " + (i + 1) + ": " + child.name);
+                tile.setOnClickListener(v -> selectGalleryItem(selected));
+                LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-2, -2);
+                params.rightMargin = Ui.dp(this, 8);
+                thumbnails.addView(tile, params);
+                if (i == galleryIndex) selectedTile = tile;
+            }
+            root.addView(strip);
+            View centered = selectedTile;
+            strip.post(() -> {
+                if (galleryFullscreen && strip.isAttachedToWindow()) {
+                    strip.scrollTo(Math.max(0, centered.getLeft() - (strip.getWidth() - centered.getWidth()) / 2), 0);
+                    galleryImages.loadVisible();
+                }
+            });
+            strip.setOnScrollChangeListener((view, x, y, oldX, oldY) -> galleryImages.loadVisible());
+        }
+    }
+
     private void galleryDetail() {
         GalleryStore.Entry entry = galleryEntry;
         TextView back = Ui.text(this, "Volver a la galería", 14, Ui.CYAN, true);
         Ui.withIcon(back, R.drawable.tabler_arrow_left, Ui.CYAN);
-        back.setOnClickListener(v -> { galleryEntry = null; galleryItems = null; render(); });
+        back.setOnClickListener(v -> returnToGallery());
         content.addView(back);
         Ui.gap(content, this, 16);
         content.addView(Ui.text(this, entry.title, 23, Ui.WHITE, true));
@@ -497,7 +694,18 @@ public class MainActivity extends Activity {
         } else {
             GalleryDocuments.Item item = galleryItems.get(galleryIndex);
             LinearLayout viewer = Ui.card(this, 12);
-            viewer.addView(Ui.text(this, item.name, 14, Ui.WHITE, true));
+            LinearLayout viewerHeader = Ui.row(this);
+            TextView filename = Ui.text(this, item.name, 14, Ui.WHITE, true);
+            filename.setSingleLine(true);
+            filename.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            viewerHeader.addView(filename, new LinearLayout.LayoutParams(0, -2, 1));
+            ImageView fullscreen = Ui.plainIconAction(this, R.drawable.tabler_maximize,
+                    () -> { galleryFullscreen = true; render(); });
+            fullscreen.setContentDescription("Ver en pantalla completa");
+            LinearLayout.LayoutParams fullscreenParams = new LinearLayout.LayoutParams(Ui.dp(this, 44), Ui.dp(this, 44));
+            fullscreenParams.leftMargin = Ui.dp(this, 8);
+            viewerHeader.addView(fullscreen, fullscreenParams);
+            viewer.addView(viewerHeader);
             Ui.gap(viewer, this, 10);
             galleryVideo = GalleryViewer.show(this, viewer, item, galleryIO);
             content.addView(viewer);
@@ -545,8 +753,15 @@ public class MainActivity extends Activity {
             }
         }
         Ui.gap(content, this, 18);
-        content.addView(Ui.button(this, "Eliminar descarga", R.drawable.tabler_trash,
-                false, () -> confirmDelete(entry)));
+        content.addView(Ui.dangerButton(this, "Eliminar descarga", R.drawable.tabler_trash,
+                () -> confirmDelete(entry)));
+    }
+
+    private void returnToGallery() {
+        galleryFullscreen = false;
+        galleryEntry = null;
+        galleryItems = null;
+        render();
     }
 
     private void selectGalleryItem(int index) {
@@ -560,12 +775,40 @@ public class MainActivity extends Activity {
         catch (IllegalStateException ignored) { /* The gallery displays the storage error instead of replacing history. */ }
     }
 
+    private void shareGalleryEntry(GalleryStore.Entry entry) {
+        galleryIO.execute(() -> {
+            Intent send;
+            try {
+                List<GalleryDocuments.Item> items = GalleryDocuments.list(getContentResolver(), entry);
+                send = GalleryShare.intent(items);
+            } catch (Exception error) {
+                String message = "No se pudo compartir la descarga: " + error.getMessage();
+                runOnUiThread(() -> {
+                    if (!isFinishing() && !isDestroyed()) Toast.makeText(this, message, Toast.LENGTH_LONG).show();
+                });
+                return;
+            }
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) return;
+                try {
+                    Intent chooser = Intent.createChooser(send, "Compartir descarga");
+                    chooser.setClipData(send.getClipData());
+                    chooser.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                    startActivity(chooser);
+                } catch (Exception error) {
+                    Toast.makeText(this, "No hay ninguna aplicación disponible para compartir estos archivos.",
+                            Toast.LENGTH_LONG).show();
+                }
+            });
+        });
+    }
+
     private void confirmDelete(GalleryStore.Entry entry) {
-        new AlertDialog.Builder(this, AlertDialog.THEME_DEVICE_DEFAULT_DARK)
+        AlertDialog dialog = new AlertDialog.Builder(this, AlertDialog.THEME_DEVICE_DEFAULT_DARK)
                 .setTitle("Eliminar descarga")
                 .setMessage("Se eliminará «" + entry.title + "» y sus archivos del almacenamiento. Esta acción no se puede deshacer.")
                 .setNegativeButton("Cancelar", null)
-                .setPositiveButton("Eliminar", (dialog, which) -> galleryIO.execute(() -> {
+                .setPositiveButton("Eliminar", (confirmation, which) -> galleryIO.execute(() -> {
                     String failure = null;
                     try {
                         if (!DocumentsContract.deleteDocument(getContentResolver(), Uri.parse(entry.uri)))
@@ -579,13 +822,16 @@ public class MainActivity extends Activity {
                             if (galleryEntry != null && entry.uri.equals(galleryEntry.uri)) {
                                 galleryEntry = null;
                                 galleryItems = null;
+                                galleryFullscreen = false;
                             }
                             if (tab == 2) render();
                             refreshProgress();
                             Toast.makeText(this, "Descarga eliminada", Toast.LENGTH_SHORT).show();
                         } else Toast.makeText(this, result, Toast.LENGTH_LONG).show();
                     });
-                })).show();
+                })).create();
+        dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setTextColor(Ui.DANGER));
+        dialog.show();
     }
 
     private void home() {
@@ -1087,10 +1333,11 @@ public class MainActivity extends Activity {
     }
 
     @Override public void onBackPressed() {
-        if (tab == 2 && galleryEntry != null) {
-            galleryEntry = null;
-            galleryItems = null;
+        if (galleryFullscreen) {
+            galleryFullscreen = false;
             render();
+        } else if (tab == 2 && galleryEntry != null) {
+            returnToGallery();
         } else super.onBackPressed();
     }
 

@@ -32,9 +32,14 @@ final class GalleryViewer {
 
     static VideoView show(Activity activity, LinearLayout container, GalleryDocuments.Item item,
                           ExecutorService executor) {
+        int height = Math.min(Ui.dp(activity, 470), activity.getResources().getDisplayMetrics().heightPixels / 2);
+        return show(activity, container, item, executor, height);
+    }
+
+    static VideoView show(Activity activity, LinearLayout container, GalleryDocuments.Item item,
+                          ExecutorService executor, int height) {
         String mime = item.mime == null ? "" : item.mime;
         String name = item.name.toLowerCase(java.util.Locale.ROOT);
-        int height = Math.min(Ui.dp(activity, 470), activity.getResources().getDisplayMetrics().heightPixels / 2);
         if (mime.startsWith("video/") || name.endsWith(".mp4")) {
             FrameLayout frame = new FrameLayout(activity);
             frame.setBackground(Ui.background(activity, Ui.INPUT, 12));
@@ -59,9 +64,16 @@ final class GalleryViewer {
                 return true;
             });
             video.setVideoURI(item.uri);
-            Ui.gap(container, activity, 10);
-            container.addView(Ui.button(activity, "Reproducir vídeo en bucle", R.drawable.tabler_player_play,
-                    true, video::start));
+            TextView play = Ui.button(activity, "Reproducir vídeo en bucle", R.drawable.tabler_player_play,
+                    true, video::start);
+            if (height == -1) {
+                FrameLayout.LayoutParams playParams = new FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+                playParams.bottomMargin = Ui.dp(activity, 20);
+                frame.addView(play, playParams);
+            } else {
+                Ui.gap(container, activity, 10);
+                container.addView(play);
+            }
             return video;
         }
         if (mime.startsWith("text/") || name.endsWith(".txt")) {

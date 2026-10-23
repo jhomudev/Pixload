@@ -27,6 +27,7 @@ final class Ui {
     static final int BLUE = Color.rgb(50, 151, 223);
     static final int CYAN = Color.rgb(123, 208, 255);
     static final int GREEN = Color.rgb(78, 222, 163);
+    static final int DANGER = Color.rgb(255, 112, 122);
     static final int WHITE = Color.rgb(223, 226, 239);
     static final int MUTED = Color.rgb(174, 185, 199);
     static final int BORDER = Color.rgb(64, 72, 81);
@@ -104,6 +105,16 @@ final class Ui {
         return view;
     }
 
+    static TextView dangerButton(Context context, String label, int icon, Runnable action) {
+        TextView view = button(context, label, false, action);
+        view.setTextColor(DANGER);
+        GradientDrawable outline = background(context, RAISED, 14);
+        outline.setStroke(dp(context, 1), DANGER);
+        view.setBackground(outline);
+        withIcon(view, icon, DANGER);
+        return view;
+    }
+
     static void withIcon(TextView view, int resource, int color) {
         Drawable drawable = view.getContext().getDrawable(resource).mutate();
         drawable.setTint(color);
@@ -155,6 +166,18 @@ final class Ui {
         button.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
         button.setBackground(outlined(context, RAISED, 14));
         button.setPadding(dp(context, 13), dp(context, 13), dp(context, 13), dp(context, 13));
+        button.setOnClickListener(v -> action.run());
+        return button;
+    }
+
+    static ImageView plainIconAction(Context context, int resource, Runnable action) {
+        return plainIconAction(context, resource, CYAN, action);
+    }
+
+    static ImageView plainIconAction(Context context, int resource, int color, Runnable action) {
+        ImageView button = icon(context, resource, color);
+        button.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
+        button.setPadding(dp(context, 10), dp(context, 10), dp(context, 10), dp(context, 10));
         button.setOnClickListener(v -> action.run());
         return button;
     }
