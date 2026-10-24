@@ -40,12 +40,12 @@ La paleta global se construye de muestras de **3 frames** (primero, central, úl
 
 | Métrica | Antes (Square median-cut/Floyd por frame) | Después (Equilibrado, paleta+LUT) |
 | --- | ---: | ---: |
-| Tiempo total (incluye JPEG/ZIP/GIF) | 122,00 s | 3,47 s (**~35×**) |
-| Tamaño GIF | 530 843 B | 590 068 B (**+11,2 %**) |
-| Pico PSS muestreado cada 20 ms | 140 359 KiB | 101 730 KiB (**−27,5 %**) |
-| Pico de tamaño de heap Java muestreado | 59 180 KiB | 38 704 KiB |
+| Tiempo total (incluye JPEG/ZIP/GIF) | 86,60 s | 3,35 s (**~25,9×**) |
+| Tamaño GIF | 531 506 B | 590 306 B (**+11,1 %**) |
+| Pico PSS muestreado cada 20 ms | 138 440 KiB | 116 397 KiB (**−15,9 %**) |
+| Pico de tamaño de heap Java muestreado | 57 824 KiB | 67 474 KiB (**+16,7 %; no mejora garantizada**) |
 
-Los picos son muestras a intervalos y pueden omitir picos más breves. Se midió el corpus completo de **100 JPEG** solo con la versión nueva: **30,18 s** (otra corrida 22,14 s), GIF **5 706 288 B**, PSS máximo muestreado **162 455–173 762 KiB**, heap máximo **73 250–82 322 KiB**. No se extrapolan tamaño ni memoria de la versión vieja a 100 fotogramas: no se ejecutó ese experimento completo. Criterio acordado: ≤3 min para 100 frames a 480 px; **cumplido**. Por eso no se activa Fase 2 (encoder propio/NDK). No se ha evaluado ni verificado `android-ndk-gif` para AGP/NDK ni páginas de 16 KB porque la condición de entrada a Fase 2 no se cumplió.
+Estas dos mediciones comparables se ejecutaron en procesos de instrumentación separados; una corrida anterior en el mismo proceso tras otros benchmarks dio 122,00 s/3,47 s y PSS 140 359/101 730 KiB respectivamente. La memoria varía con el GC, la inicialización de Kotlin/ART y el orden de pruebas: **no** se garantiza menor heap en cada ejecución. Los picos son muestras a intervalos y pueden omitir picos más breves. Se midió el corpus completo de **100 JPEG** solo con la versión nueva: **30,18 s** (otra corrida 22,14 s), GIF **5 706 288 B**, PSS máximo muestreado **162 455–173 762 KiB**, heap máximo **73 250–82 322 KiB**. No se extrapolan tamaño ni memoria de la versión vieja a 100 fotogramas: no se ejecutó ese experimento completo. Criterio acordado: ≤3 min para 100 frames a 480 px; **cumplido**. Por eso no se activa Fase 2 (encoder propio/NDK). No se ha evaluado ni verificado `android-ndk-gif` para AGP/NDK ni páginas de 16 KB porque la condición de entrada a Fase 2 no se cumplió.
 
 ## Presets disponibles en la vista de ugoira
 
