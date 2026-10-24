@@ -3,9 +3,6 @@ package com.pixload.app;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 
-import com.squareup.gifencoder.GifEncoder;
-import com.squareup.gifencoder.ImageOptions;
-
 import org.jcodec.api.android.AndroidSequenceEncoder;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -14,43 +11,21 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.util.concurrent.TimeUnit;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
-final class UgoiraConverter {
-    interface Progress { void update(int done, int total) throws IOException; }
+public final class UgoiraConverter {
+    public interface Progress { void update(int done, int total) throws IOException; }
 
     private static final int FPS = 30;
 
     static void gif(File archive, JSONArray frames, OutputStream output, Progress progress) throws Exception {
-        try (ZipFile zip = new ZipFile(archive)) {
-            if (frames.length() == 0) throw new IOException("La animación no contiene fotogramas.");
-            Bitmap first = decode(zip, frames.getJSONObject(0).getString("file"), 960);
-            int width = first.getWidth();
-            int height = first.getHeight();
-            // Per-frame median-cut palette + Floyd–Steinberg diffusion, rather than
-            // the fixed RGB 3:3:2 buckets and repeating Bayer pattern.
-            GifEncoder encoder = new GifEncoder(output, width, height, 0);
-            int[] pixels = new int[width * height];
-            for (int i = 0; i < frames.length(); i++) {
-                JSONObject frame = frames.getJSONObject(i);
-                Bitmap bitmap = i == 0 ? first : decode(zip, frame.getString("file"), 960);
-                Bitmap resized = bitmap.getWidth() == width && bitmap.getHeight() == height ? bitmap
-                        : Bitmap.createScaledBitmap(bitmap, width, height, true);
-                try {
-                    resized.getPixels(pixels, 0, width, 0, 0, width, height);
-                    ImageOptions options = new ImageOptions().setDelay(
-                            Math.max(20, Math.min(655350, frame.optInt("delay", 100))), TimeUnit.MILLISECONDS);
-                    encoder.addImage(pixels, width, options);
-                } finally {
-                    if (resized != bitmap) resized.recycle();
-                    bitmap.recycle();
-                }
-                progress.update(i + 1, frames.length());
-            }
-            encoder.finishEncoding();
-        }
+        gif(archive, frames, output, progress, GifPreset.BALANCED);
+    }
+
+    static void gif(File archive, JSONArray frames, OutputStream output, Progress progress,
+                    GifPreset preset) throws Exception {
+        GifConversion.convert(archive, frames, output, progress, preset);
     }
 
     static void mp4(File archive, JSONArray frames, File output, Progress progress) throws Exception {

@@ -34,7 +34,7 @@ Pixload utiliza endpoints AJAX no oficiales de Pixiv: su funcionamiento depende 
 
 ## Para desarrolladores
 
-Proyecto Android nativo en Java 17, un único módulo `:app`, SDK 35. Para compilar se necesita JDK 21, Android SDK 35 y Gradle Wrapper (incluido):
+Proyecto Android nativo en Java 17 con la conversión GIF en Kotlin (JVM 17), un único módulo `:app`, SDK 35. Para compilar se necesita JDK 21, Android SDK 35 y Gradle Wrapper (incluido):
 
 ```bash
 ./gradlew :app:testDebugUnitTest :app:assembleDebug

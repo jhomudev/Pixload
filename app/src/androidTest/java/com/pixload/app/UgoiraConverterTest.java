@@ -176,8 +176,8 @@ public class UgoiraConverterTest {
             byte[] data = output.toByteArray();
             Movie movie = Movie.decodeByteArray(data, 0, data.length);
             assertTrue(movie != null);
-            assertEquals(width, movie.width());
-            assertEquals(height, movie.height());
+            assertEquals(480, movie.width());
+            assertEquals(270, movie.height());
         } finally { archive.delete(); }
     }
 
@@ -198,8 +198,62 @@ public class UgoiraConverterTest {
             byte[] data = output.toByteArray();
             Movie movie = Movie.decodeByteArray(data, 0, data.length);
             assertTrue(movie != null);
-            assertEquals(960, movie.width());
-            assertEquals(96, movie.height());
+            assertEquals(480, movie.width());
+            assertEquals(48, movie.height());
+            for (GifPreset preset : new GifPreset[]{GifPreset.FAST, GifPreset.QUALITY}) {
+                ByteArrayOutputStream variant = new ByteArrayOutputStream();
+                UgoiraConverter.gif(archive, frames, variant, (done, total) -> {}, preset);
+                byte[] bytes = variant.toByteArray();
+                Movie decoded = Movie.decodeByteArray(bytes, 0, bytes.length);
+                assertTrue(decoded != null);
+                assertEquals(preset.getMaxWidth(), decoded.width());
+                assertEquals(preset.getMaxWidth() / 10, decoded.height());
+            }
+        } finally { archive.delete(); }
+    }
+
+    @Test public void gifAccumulatesVariableDelayRounding() throws Exception {
+        File archive = archive();
+        try {
+            JSONArray timing = new JSONArray().put(new JSONObject().put("file", "000000.png").put("delay", 33))
+                    .put(new JSONObject().put("file", "000001.png").put("delay", 33))
+                    .put(new JSONObject().put("file", "000000.png").put("delay", 33));
+            ByteArrayOutputStream output = new ByteArrayOutputStream();
+            UgoiraConverter.gif(archive, timing, output, (done, total) -> {}, GifPreset.BALANCED);
+            byte[] data = output.toByteArray();
+            Movie movie = Movie.decodeByteArray(data, 0, data.length);
+            assertTrue(movie != null);
+            assertEquals(100, movie.duration()); // Round cumulative 99ms once, not 3 x 30ms.
+            assertTrue(new String(data, java.nio.charset.StandardCharsets.ISO_8859_1).contains("NETSCAPE2.0"));
+        } finally { archive.delete(); }
+    }
+
+    @Test public void gifCapsFrameRateWithoutChangingTotalDuration() throws Exception {
+        File archive = archive();
+        try {
+            JSONArray timing = new JSONArray();
+            for (int i = 0; i < 10; i++) timing.put(new JSONObject()
+                    .put("file", i % 2 == 0 ? "000000.png" : "000001.png").put("delay", 10));
+            ByteArrayOutputStream output = new ByteArrayOutputStream();
+            UgoiraConverter.gif(archive, timing, output, (done, total) -> {}, GifPreset.BALANCED);
+            byte[] data = output.toByteArray();
+            Movie movie = Movie.decodeByteArray(data, 0, data.length);
+            assertTrue(movie != null);
+            assertEquals(100, movie.duration());
+        } finally { archive.delete(); }
+    }
+
+    @Test public void gifCancellationIsCooperativeBeforeSampling() throws Exception {
+        File archive = archive();
+        try {
+            try {
+                UgoiraConverter.gif(archive, frames(), new ByteArrayOutputStream(), (done, total) -> {
+                    throw new java.io.IOException("Cancelado");
+                });
+                org.junit.Assert.fail("No canceló la conversión");
+            } catch (java.io.IOException expected) {
+                assertEquals("Cancelado", expected.getMessage());
+            }
         } finally { archive.delete(); }
     }
 

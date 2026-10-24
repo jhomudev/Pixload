@@ -87,6 +87,7 @@ public class MainActivity extends Activity {
     private boolean downloadAfterFolderPick;
     private boolean mp4;
     private boolean defaultMp4;
+    private GifPreset gifPreset;
     private int sessionGeneration;
     private boolean[] selectedPages;
     private GalleryStore.Entry galleryEntry;
@@ -117,6 +118,7 @@ public class MainActivity extends Activity {
         importLastDownload();
         defaultMp4 = "mp4".equals(getPreferences(MODE_PRIVATE).getString("animation_format", "gif"));
         mp4 = defaultMp4;
+        gifPreset = GifPreset.fromId(getPreferences(MODE_PRIVATE).getString("gif_preset", "balanced"));
         if (state != null) {
             tab = state.getInt("tab", 0);
             linkValue = state.getString("link", linkValue);
@@ -1106,6 +1108,27 @@ public class MainActivity extends Activity {
         content.addView(formats);
         Ui.gap(content, this, 10);
         content.addView(Ui.text(this, "MP4 no incluye sonido. La conversión puede reducir el tamaño o la fidelidad de la animación.", 13, Ui.MUTED, false));
+        if (!mp4) {
+            Ui.gap(content, this, 14);
+            content.addView(Ui.text(this, "Calidad del GIF", 16, Ui.WHITE, true));
+            Ui.gap(content, this, 8);
+            LinearLayout presets = Ui.row(this);
+            for (GifPreset choice : GifPreset.values()) {
+                String title = choice == GifPreset.FAST ? "Rápido" : choice == GifPreset.BALANCED ? "Equilibrado" : "Calidad";
+                TextView button = Ui.button(this, title, choice == gifPreset, () -> {
+                    gifPreset = choice;
+                    getPreferences(MODE_PRIVATE).edit().putString("gif_preset", choice.getId()).apply();
+                    render();
+                });
+                LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, -2, 1);
+                params.rightMargin = Ui.dp(this, 6);
+                presets.addView(button, params);
+            }
+            content.addView(presets);
+            Ui.gap(content, this, 6);
+            content.addView(Ui.text(this, "Hasta " + gifPreset.getMaxWidth() + " px · " + gifPreset.getFpsMax()
+                    + " fps · " + (gifPreset.getDiffuse() ? "difusión de error" : "sin dithering"), 12, Ui.MUTED, false));
+        }
     }
 
     private void novel() {
@@ -1321,7 +1344,8 @@ public class MainActivity extends Activity {
             } else if ("ugoira".equals(work.type)) {
                 files.put(new JSONObject().put("url", work.animationUrl)
                         .put("name", mp4 ? "animacion.mp4" : "animacion.gif")
-                        .put("frames", work.frames).put("format", mp4 ? "mp4" : "gif"));
+                        .put("frames", work.frames).put("format", mp4 ? "mp4" : "gif")
+                        .put("preset", gifPreset.getId()));
             } else {
                 files.put(new JSONObject().put("name", "novela.txt")
                         .put("text", work.title + "\n" + work.author + "\n\n" + work.text));

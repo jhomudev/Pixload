@@ -177,7 +177,8 @@ public class DownloadService extends Service {
                 notifyState("Convirtiendo GIF · 0/" + frames.length(), 0, frames.length(), false);
                 try (OutputStream target = getContentResolver().openOutputStream(output, "wt")) {
                     if (target == null) throw new IOException("No se pudo escribir el GIF.");
-                    UgoiraConverter.gif(archive, frames, target, progress);
+                    UgoiraConverter.gif(archive, frames, target, progress,
+                            GifPreset.fromId(file.optString("preset", "balanced")));
                 }
             } else if ("mp4".equals(file.getString("format"))) {
                 video = File.createTempFile("pixload-", ".mp4", getCacheDir());
