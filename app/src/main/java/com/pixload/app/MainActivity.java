@@ -71,6 +71,7 @@ public class MainActivity extends Activity {
     private TextView status;
     private TextView sessionBadge;
     private TextView selectionCount;
+    private TextView selectionDownloadButton;
     private TextView progressTitle;
     private TextView progressNumber;
     private ImageView progressClose;
@@ -180,6 +181,7 @@ public class MainActivity extends Activity {
         galleryScrollPending = false;
         images.clear();
         galleryImages.clear();
+        selectionDownloadButton = null;
         if (galleryVideo != null) { galleryVideo.stopPlayback(); galleryVideo = null; }
         progressTitle = null;
         progressNumber = null;
@@ -296,6 +298,7 @@ public class MainActivity extends Activity {
     }
 
     private void refreshProgress() {
+        updateDownloadButton();
         DownloadStatus current = DownloadStatus.read(this);
         if (current != null && clearCompletedWork(current)) { render(); return; }
         if (current != null && "complete".equals(current.state) && !current.documentUri.isEmpty()
@@ -1121,10 +1124,27 @@ public class MainActivity extends Activity {
         selectionCount = Ui.text(this, "", 14, Ui.WHITE, true);
         bar.addView(selectionCount);
         Ui.gap(bar, this, 9);
-        bar.addView(Ui.button(this, "Descargar selección", R.drawable.tabler_download, true, this::download));
+        selectionDownloadButton = Ui.button(this, "Descargar selección", R.drawable.tabler_download, true, this::download);
+        bar.addView(selectionDownloadButton);
+        updateDownloadButton();
         bottom.addView(bar);
         Ui.gap(bottom, this, 8);
         updateSelection();
+    }
+
+    private void updateDownloadButton() {
+        if (selectionDownloadButton == null) return;
+        boolean active = DownloadStatus.isActive(this);
+        if (selectionDownloadButton.isEnabled() == !active) return;
+        selectionDownloadButton.setEnabled(!active);
+        selectionDownloadButton.setAlpha(active ? .55f : 1f);
+        if (active) {
+            selectionDownloadButton.setText("Descargando...");
+            selectionDownloadButton.setContentDescription("Descargando...");
+        } else {
+            selectionDownloadButton.setText("Descargar selección");
+            Ui.withIcon(selectionDownloadButton, R.drawable.tabler_download, Ui.INPUT);
+        }
     }
 
     private void syncSelection() {
@@ -1244,7 +1264,7 @@ public class MainActivity extends Activity {
     }
 
     private void download() {
-        if (work == null) return;
+        if (work == null || DownloadStatus.isActive(this)) return;
         if ("image".equals(work.type)) {
             boolean chosen = false;
             for (CheckBox check : pageChecks) chosen |= check.isChecked();
@@ -1280,6 +1300,8 @@ public class MainActivity extends Activity {
     }
 
     private void queue(Uri folder) {
+        if (work == null || DownloadStatus.isActive(this)) return;
+        boolean statusWritten = false;
         try {
             JSONObject job = new JSONObject();
             job.put("title", work.title);
@@ -1306,6 +1328,8 @@ public class MainActivity extends Activity {
             }
             job.put("files", files);
             DownloadStatus.write(this, "Preparando descarga…", "active", 0, 0);
+            statusWritten = true;
+            updateDownloadButton();
             getPreferences(MODE_PRIVATE).edit().putString("last_queued_work_id", work.id)
                     .putString("last_queued_link", linkValue).apply();
             Intent intent = new Intent(this, DownloadService.class);
@@ -1315,7 +1339,13 @@ public class MainActivity extends Activity {
             message = "Descarga iniciada. Consulta la notificación para ver el avance.";
             refreshProgress();
             Toast.makeText(this, message, Toast.LENGTH_LONG).show();
-        } catch (Exception e) { Toast.makeText(this, "No se pudo iniciar la descarga: " + e.getMessage(), Toast.LENGTH_LONG).show(); }
+        } catch (Exception e) {
+            if (statusWritten) {
+                DownloadStatus.write(this, "No se pudo iniciar la descarga", "error", 0, 0);
+                refreshProgress();
+            }
+            Toast.makeText(this, "No se pudo iniciar la descarga: " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
     }
 
     @Override protected void onResume() {

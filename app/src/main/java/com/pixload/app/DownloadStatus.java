@@ -35,6 +35,12 @@ final class DownloadStatus {
                 prefs.getBoolean("folder", false), prefs.getString("work_id", ""));
     }
 
+    // A hidden progress card does not mean the download has stopped.
+    static boolean isActive(Context context) {
+        SharedPreferences prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        return prefs.contains("title") && "active".equals(prefs.getString("state", ""));
+    }
+
     static void write(Context context, String title, String state, int progress, int max) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
                 .putString("title", title).putString("state", state)

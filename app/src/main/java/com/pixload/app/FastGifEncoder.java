@@ -5,8 +5,9 @@ import android.graphics.Bitmap;
 import java.io.BufferedOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.util.Arrays;
 
-/** Writes indexed GIF frames with a fixed RGB 3:3:2 palette and a reusable LZW dictionary. */
+/** Fast RGB 3:3:2 indexing with per-frame color averages and a reusable LZW dictionary. */
 final class FastGifEncoder {
     private static final int CLEAR = 256;
     private static final int END = 257;
@@ -18,6 +19,11 @@ final class FastGifEncoder {
     private final int height;
     private final int[] pixels;
     private final byte[] indexed;
+    private final long[] reds = new long[256];
+    private final long[] greens = new long[256];
+    private final long[] blues = new long[256];
+    private final int[] counts = new int[256];
+    private final byte[] localPalette = new byte[256 * 3];
     private final int[] keys = new int[8192];
     private final int[] values = new int[8192];
     private final int[] generations = new int[8192];
@@ -49,6 +55,10 @@ final class FastGifEncoder {
     void addFrame(Bitmap bitmap, int delayMillis) throws IOException {
         if (bitmap.getWidth() != width || bitmap.getHeight() != height) throw new IOException("Tamaño de fotograma distinto.");
         bitmap.getPixels(pixels, 0, width, 0, 0, width, height);
+        Arrays.fill(reds, 0);
+        Arrays.fill(greens, 0);
+        Arrays.fill(blues, 0);
+        Arrays.fill(counts, 0);
         for (int y = 0; y < height; y++) {
             for (int x = 0; x < width; x++) {
                 int pos = y * width + x;
@@ -57,14 +67,30 @@ final class FastGifEncoder {
                 int red = clamp(((rgb >>> 16) & 255) + dither * 2) >>> 5;
                 int green = clamp(((rgb >>> 8) & 255) + dither * 2) >>> 5;
                 int blue = clamp((rgb & 255) + dither * 4) >>> 6;
-                indexed[pos] = (byte) ((red << 5) | (green << 2) | blue);
+                int index = (red << 5) | (green << 2) | blue;
+                indexed[pos] = (byte) index;
+                reds[index] += (rgb >>> 16) & 255;
+                greens[index] += (rgb >>> 8) & 255;
+                blues[index] += rgb & 255;
+                counts[index]++;
             }
         }
-        addIndexed(indexed, delayMillis);
+        // Keep the fast 3:3:2 lookup, but represent each occupied bucket by its
+        // actual mean color. A local table avoids a second pass over the ZIP frames.
+        for (int i = 0; i < 256; i++) {
+            localPalette[i * 3] = (byte) (counts[i] == 0 ? (i >>> 5) * 255 / 7 : reds[i] / counts[i]);
+            localPalette[i * 3 + 1] = (byte) (counts[i] == 0 ? ((i >>> 2) & 7) * 255 / 7 : greens[i] / counts[i]);
+            localPalette[i * 3 + 2] = (byte) (counts[i] == 0 ? (i & 3) * 85 : blues[i] / counts[i]);
+        }
+        writeFrame(indexed, delayMillis, localPalette);
     }
 
     void addIndexed(byte[] frame, int delayMillis) throws IOException {
         if (frame.length != indexed.length) throw new IOException("Tamaño de fotograma distinto.");
+        writeFrame(frame, delayMillis, null);
+    }
+
+    private void writeFrame(byte[] frame, int delayMillis, byte[] palette) throws IOException {
         int delay = Math.max(2, Math.min(65535, Math.round(delayMillis / 10f)));
         out.write(new byte[]{0x21, (byte) 0xf9, 4, 0, (byte) delay, (byte) (delay >>> 8), 0, 0});
         out.write(0x2c);
@@ -72,8 +98,9 @@ final class FastGifEncoder {
         shortValue(0);
         shortValue(width);
         shortValue(height);
-        out.write(0); // Use the global color table.
-        out.write(8); // Minimum LZW code size for the global 256-color palette.
+        out.write(palette == null ? 0 : 0x87); // Optional 256-color local table.
+        if (palette != null) out.write(palette);
+        out.write(8); // Minimum LZW code size for the 256-color palette.
         encode(frame);
     }
 

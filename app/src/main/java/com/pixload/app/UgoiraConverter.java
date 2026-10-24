@@ -3,6 +3,9 @@ package com.pixload.app;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 
+import com.squareup.gifencoder.GifEncoder;
+import com.squareup.gifencoder.ImageOptions;
+
 import org.jcodec.api.android.AndroidSequenceEncoder;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -11,6 +14,7 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.concurrent.TimeUnit;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
@@ -25,21 +29,27 @@ final class UgoiraConverter {
             Bitmap first = decode(zip, frames.getJSONObject(0).getString("file"), 960);
             int width = first.getWidth();
             int height = first.getHeight();
-            FastGifEncoder encoder = new FastGifEncoder(output, width, height);
+            // Per-frame median-cut palette + Floyd–Steinberg diffusion, rather than
+            // the fixed RGB 3:3:2 buckets and repeating Bayer pattern.
+            GifEncoder encoder = new GifEncoder(output, width, height, 0);
+            int[] pixels = new int[width * height];
             for (int i = 0; i < frames.length(); i++) {
                 JSONObject frame = frames.getJSONObject(i);
                 Bitmap bitmap = i == 0 ? first : decode(zip, frame.getString("file"), 960);
                 Bitmap resized = bitmap.getWidth() == width && bitmap.getHeight() == height ? bitmap
                         : Bitmap.createScaledBitmap(bitmap, width, height, true);
                 try {
-                    encoder.addFrame(resized, Math.max(20, frame.optInt("delay", 100)));
+                    resized.getPixels(pixels, 0, width, 0, 0, width, height);
+                    ImageOptions options = new ImageOptions().setDelay(
+                            Math.max(20, Math.min(655350, frame.optInt("delay", 100))), TimeUnit.MILLISECONDS);
+                    encoder.addImage(pixels, width, options);
                 } finally {
                     if (resized != bitmap) resized.recycle();
                     bitmap.recycle();
                 }
                 progress.update(i + 1, frames.length());
             }
-            encoder.finish();
+            encoder.finishEncoding();
         }
     }
 
@@ -92,13 +102,21 @@ final class UgoiraConverter {
             throw new IOException("Dimensiones de fotograma no válidas.");
         }
         options.inSampleSize = 1;
-        while (options.outWidth / options.inSampleSize > maxSize ||
-                options.outHeight / options.inSampleSize > maxSize) options.inSampleSize *= 2;
+        // Decode at or above the target resolution, then scale precisely.
+        // Previously 1100px was subsampled directly to ~550px for a 960px GIF.
+        while (Math.max(options.outWidth, options.outHeight) / (options.inSampleSize * 2) >= maxSize)
+            options.inSampleSize *= 2;
         options.inJustDecodeBounds = false;
         try (InputStream stream = zip.getInputStream(entry)) {
             Bitmap bitmap = BitmapFactory.decodeStream(stream, null, options);
             if (bitmap == null) throw new IOException("No se pudo leer el fotograma " + name);
-            return bitmap;
+            int largest = Math.max(bitmap.getWidth(), bitmap.getHeight());
+            if (largest <= maxSize) return bitmap;
+            double scale = (double) maxSize / largest;
+            int width = Math.max(1, (int) Math.round(bitmap.getWidth() * scale));
+            int height = Math.max(1, (int) Math.round(bitmap.getHeight() * scale));
+            try { return Bitmap.createScaledBitmap(bitmap, width, height, true); }
+            finally { bitmap.recycle(); }
         }
     }
 }

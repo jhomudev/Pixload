@@ -34,6 +34,7 @@ final class PreviewImages {
     View view(String url, int heightDp) {
         FrameLayout frame = new FrameLayout(activity);
         frame.setBackground(Ui.background(activity, Ui.RAISED, 12));
+        frame.setClipToOutline(true);
         ImageView image = new ImageView(activity);
         image.setContentDescription("Miniatura de la obra de Pixiv");
         image.setScaleType(ImageView.ScaleType.CENTER_CROP);

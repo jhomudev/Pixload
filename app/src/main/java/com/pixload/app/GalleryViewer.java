@@ -107,6 +107,7 @@ final class GalleryViewer {
         if (mime.startsWith("image/") || name.matches(".*\\.(png|jpe?g|webp|gif)$")) {
             FrameLayout frame = new FrameLayout(activity);
             frame.setBackground(Ui.background(activity, Ui.INPUT, 12));
+            frame.setClipToOutline(height != -1);
             container.addView(frame, new LinearLayout.LayoutParams(-1, height));
             ImageView image = new ImageView(activity);
             image.setScaleType(ImageView.ScaleType.FIT_CENTER);

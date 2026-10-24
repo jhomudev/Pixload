@@ -44,4 +44,4 @@ Para las pruebas instrumentadas de galería y conversión, compila con `./gradle
 
 ## Licencias
 
-Pixload se publica bajo [licencia MIT](LICENSE). La tipografía Titillium Web y los iconos de Tabler conservan sus licencias en [`app/src/main/assets/licenses/`](app/src/main/assets/licenses/). El icono de la app procede de [`app/icon-source.png`](app/icon-source.png).
+Pixload se publica bajo [licencia MIT](LICENSE). La tipografía Titillium Web, los iconos de Tabler y Square gifencoder (Apache 2.0) conservan sus licencias en [`app/src/main/assets/licenses/`](app/src/main/assets/licenses/). El icono de la app procede de [`app/icon-source.png`](app/icon-source.png).

@@ -90,6 +90,119 @@ public class UgoiraConverterTest {
         second.recycle();
     }
 
+    @Test public void gifPreservesColorsInsideCoarsePaletteBuckets() throws Exception {
+        int[] colors = {Color.rgb(12, 17, 23), Color.rgb(147, 101, 211)};
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        FastGifEncoder encoder = new FastGifEncoder(output, 128, 64);
+        for (int color : colors) {
+            Bitmap bitmap = Bitmap.createBitmap(128, 64, Bitmap.Config.ARGB_8888);
+            bitmap.eraseColor(color);
+            encoder.addFrame(bitmap, 100);
+            bitmap.recycle();
+        }
+        encoder.finish();
+        byte[] data = output.toByteArray();
+        Movie movie = Movie.decodeByteArray(data, 0, data.length);
+        assertTrue(movie != null);
+        assertEquals(200, movie.duration());
+        Bitmap result = Bitmap.createBitmap(128, 64, Bitmap.Config.ARGB_8888);
+        for (int i = 0; i < colors.length; i++) {
+            movie.setTime(i * 100 + 50);
+            movie.draw(new Canvas(result), 0, 0);
+            int expected = colors[i];
+            int actual = result.getPixel(64, 32);
+            assertTrue(Math.abs(Color.red(expected) - Color.red(actual)) <= 2);
+            assertTrue(Math.abs(Color.green(expected) - Color.green(actual)) <= 2);
+            assertTrue(Math.abs(Color.blue(expected) - Color.blue(actual)) <= 2);
+        }
+        result.recycle();
+    }
+
+    @Test public void convertsGradientWithMoreThan256Colors() throws Exception {
+        File archive = File.createTempFile("pixload-gradient-", ".zip", directory);
+        try {
+            int[] colors = new int[128 * 128];
+            for (int y = 0; y < 128; y++) for (int x = 0; x < 128; x++)
+                colors[y * 128 + x] = Color.rgb(x * 2, y * 2, (x + y) * 255 / 254);
+            try (ZipOutputStream zip = new ZipOutputStream(new FileOutputStream(archive))) {
+                Bitmap frame = Bitmap.createBitmap(colors, 128, 128, Bitmap.Config.ARGB_8888);
+                zip.putNextEntry(new ZipEntry("gradient.png"));
+                frame.compress(Bitmap.CompressFormat.PNG, 100, zip);
+                zip.closeEntry();
+                frame.recycle();
+            }
+            JSONArray frames = new JSONArray().put(new JSONObject().put("file", "gradient.png").put("delay", 100));
+            ByteArrayOutputStream output = new ByteArrayOutputStream();
+            UgoiraConverter.gif(archive, frames, output, (done, total) -> {});
+            byte[] data = output.toByteArray();
+            Movie movie = Movie.decodeByteArray(data, 0, data.length);
+            assertTrue(movie != null);
+            Bitmap result = Bitmap.createBitmap(128, 128, Bitmap.Config.ARGB_8888);
+            movie.setTime(0);
+            movie.draw(new Canvas(result), 0, 0);
+            long error = 0;
+            for (int y = 8; y < 128; y += 8) for (int x = 8; x < 128; x += 8) {
+                int expected = colors[y * 128 + x], actual = result.getPixel(x, y);
+                error += Math.abs(Color.red(expected) - Color.red(actual));
+                error += Math.abs(Color.green(expected) - Color.green(actual));
+                error += Math.abs(Color.blue(expected) - Color.blue(actual));
+            }
+            assertTrue("Error de color medio: " + error / (15 * 15 * 3), error < 15 * 15 * 3 * 24);
+            result.recycle();
+        } finally { archive.delete(); }
+    }
+
+    @Test public void convertsFullSizeColorfulGif() throws Exception {
+        File archive = File.createTempFile("pixload-fullsize-", ".zip", directory);
+        try {
+            int width = 960, height = 540;
+            int[] colors = new int[width * height];
+            for (int y = 0; y < height; y++) for (int x = 0; x < width; x++)
+                colors[y * width + x] = Color.rgb(x * 255 / (width - 1), y * 255 / (height - 1),
+                        ((x + y) % 1024) * 255 / 1023);
+            try (ZipOutputStream zip = new ZipOutputStream(new FileOutputStream(archive))) {
+                Bitmap frame = Bitmap.createBitmap(colors, width, height, Bitmap.Config.ARGB_8888);
+                zip.putNextEntry(new ZipEntry("fullsize.png"));
+                frame.compress(Bitmap.CompressFormat.PNG, 100, zip);
+                zip.closeEntry();
+                frame.recycle();
+            }
+            JSONArray frames = new JSONArray().put(new JSONObject().put("file", "fullsize.png").put("delay", 100));
+            ByteArrayOutputStream output = new ByteArrayOutputStream();
+            long start = android.os.SystemClock.elapsedRealtime();
+            UgoiraConverter.gif(archive, frames, output, (done, total) -> {});
+            android.util.Log.i("PixloadGifTest", "960x540 frame: " +
+                    (android.os.SystemClock.elapsedRealtime() - start) + " ms, " + output.size() + " bytes");
+            byte[] data = output.toByteArray();
+            Movie movie = Movie.decodeByteArray(data, 0, data.length);
+            assertTrue(movie != null);
+            assertEquals(width, movie.width());
+            assertEquals(height, movie.height());
+        } finally { archive.delete(); }
+    }
+
+    @Test public void gifPreservesResolutionNearSizeLimit() throws Exception {
+        File archive = File.createTempFile("pixload-large-", ".zip", directory);
+        try {
+            try (ZipOutputStream zip = new ZipOutputStream(new FileOutputStream(archive))) {
+                Bitmap frame = Bitmap.createBitmap(1100, 110, Bitmap.Config.ARGB_8888);
+                frame.eraseColor(Color.rgb(31, 97, 193));
+                zip.putNextEntry(new ZipEntry("large.png"));
+                frame.compress(Bitmap.CompressFormat.PNG, 100, zip);
+                zip.closeEntry();
+                frame.recycle();
+            }
+            JSONArray frames = new JSONArray().put(new JSONObject().put("file", "large.png").put("delay", 100));
+            ByteArrayOutputStream output = new ByteArrayOutputStream();
+            UgoiraConverter.gif(archive, frames, output, (done, total) -> {});
+            byte[] data = output.toByteArray();
+            Movie movie = Movie.decodeByteArray(data, 0, data.length);
+            assertTrue(movie != null);
+            assertEquals(960, movie.width());
+            assertEquals(96, movie.height());
+        } finally { archive.delete(); }
+    }
+
     @Test public void convertsToPlayableMp4() throws Exception {
         File archive = archive();
         File video = File.createTempFile("pixload-test-", ".mp4", directory);

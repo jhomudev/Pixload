@@ -35,6 +35,7 @@ final class GalleryImages {
     View tile(String uri, String mime, int sizeDp) {
         FrameLayout frame = new FrameLayout(activity);
         frame.setBackground(Ui.background(activity, Ui.RAISED, 12));
+        frame.setClipToOutline(true);
         if (uri == null || uri.isEmpty() || (mime != null && mime.startsWith("text/"))) {
             boolean text = mime != null && mime.startsWith("text/");
             ImageView icon = Ui.icon(activity, text ? R.drawable.tabler_file_text : R.drawable.tabler_photo_off, Ui.CYAN);

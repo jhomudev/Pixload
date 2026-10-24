@@ -174,6 +174,7 @@ public class DownloadService extends Service {
                 }
             };
             if ("gif".equals(file.getString("format"))) {
+                notifyState("Convirtiendo GIF · 0/" + frames.length(), 0, frames.length(), false);
                 try (OutputStream target = getContentResolver().openOutputStream(output, "wt")) {
                     if (target == null) throw new IOException("No se pudo escribir el GIF.");
                     UgoiraConverter.gif(archive, frames, target, progress);
@@ -323,7 +324,7 @@ public class DownloadService extends Service {
             builder.setProgress(max, progress, max == 0);
             Intent cancel = new Intent(this, DownloadService.class).setAction("cancel");
             PendingIntent action = PendingIntent.getService(this, 1, cancel, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
-            builder.addAction(com.pixload.app.R.drawable.ic_download, "Cancelar", action);
+            builder.addAction(com.pixload.app.R.drawable.tabler_x, "Cancelar", action);
         }
         return builder.build();
     }
