@@ -1316,9 +1316,11 @@ public class MainActivity extends Activity {
         Uri folder = data.getData();
         getContentResolver().takePersistableUriPermission(folder,
                 Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
-        getPreferences(MODE_PRIVATE).edit().putString("folder", folder.toString()).apply();
         if (downloadAfterFolderPick && work != null) queue(folder);
-        else { Toast.makeText(this, "Carpeta principal seleccionada", Toast.LENGTH_SHORT).show(); render(); }
+        else {
+            getPreferences(MODE_PRIVATE).edit().putString("folder", folder.toString()).apply();
+            Toast.makeText(this, "Carpeta principal seleccionada", Toast.LENGTH_SHORT).show(); render();
+        }
         downloadAfterFolderPick = false;
     }
 
@@ -1375,7 +1377,8 @@ public class MainActivity extends Activity {
             DownloadStatus.write(this, "Preparando descarga…", "active", 0, 0);
             statusWritten = true;
             updateDownloadButton();
-            getPreferences(MODE_PRIVATE).edit().putString("last_queued_work_id", work.id)
+            getPreferences(MODE_PRIVATE).edit().putString("folder", folder.toString())
+                    .putString("last_queued_work_id", work.id)
                     .putString("last_queued_link", linkValue).apply();
             Intent intent = new Intent(this, DownloadService.class);
             intent.putExtra("job", job.toString());

@@ -228,7 +228,7 @@ public class DownloadService extends Service {
 
     private Uri createUniqueFolder(Uri tree, String title, int start) throws Exception {
         Uri parent = DocumentsContract.buildDocumentUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree));
-        for (int attempt = start; attempt < start + 30; attempt++) {
+        for (int attempt = start; attempt < start + 1000; attempt++) {
             String candidate = folderName(title, attempt);
             if (!documentExists(parent, candidate)) {
                 Uri result = DocumentsContract.createDocument(getContentResolver(), parent,
@@ -240,7 +240,7 @@ public class DownloadService extends Service {
     }
 
     private String uniqueFileName(Uri parent, String desired, int start) throws IOException {
-        for (int attempt = start; attempt < start + 30; attempt++) {
+        for (int attempt = start; attempt < start + 1000; attempt++) {
             String candidate = collisionName(desired, attempt);
             if (!documentExists(parent, candidate) && !documentExists(parent, candidate + ".part")) return candidate;
         }

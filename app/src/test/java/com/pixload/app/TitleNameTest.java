@@ -30,6 +30,7 @@ public class TitleNameTest {
         assertEquals("Mi obra", DownloadService.folderName("Mi obra", 1));
         assertEquals("Mi obra (2)", DownloadService.folderName("Mi obra", 2));
         assertEquals("Mi.obra (3)", DownloadService.folderName("Mi.obra", 3));
+        assertEquals("Mi obra (31)", DownloadService.folderName("Mi obra", 31));
     }
 
     @Test public void confirmedRepeatStartsAtSecondNameEvenWithDifferentExtension() {
@@ -42,6 +43,7 @@ public class TitleNameTest {
         assertEquals("Mi obra.png", DownloadService.collisionName("Mi obra.png", 1));
         assertEquals("Mi obra (2).png", DownloadService.collisionName("Mi obra.png", 2));
         assertEquals("Mi obra (3).png", DownloadService.collisionName("Mi obra.png", 3));
+        assertEquals("Mi obra (31).png", DownloadService.collisionName("Mi obra.png", 31));
     }
 
     @Test public void animationAndNovelUseTitleInsteadOfGenericName() {
