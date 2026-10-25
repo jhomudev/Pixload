@@ -73,10 +73,16 @@ final class Ui {
 
     static TextView text(Context context, String value, int size, int color, boolean bold) {
         TextView view = new TextView(context);
-        view.setText(value);
+        view.setText(AppLanguage.label(context, value));
         view.setTextColor(color);
         view.setTextSize(size);
         view.setTypeface(typeface(context, bold));
+        return view;
+    }
+
+    static TextView rawText(Context context, String value, int size, int color, boolean bold) {
+        TextView view = text(context, "", size, color, bold);
+        view.setText(value);
         return view;
     }
 

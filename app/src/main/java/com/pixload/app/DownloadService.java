@@ -40,7 +40,7 @@ public class DownloadService extends Service {
     @Override public void onCreate() {
         super.onCreate();
         notifications = getSystemService(NotificationManager.class);
-        notifications.createNotificationChannel(new NotificationChannel(CHANNEL, "Descargas", NotificationManager.IMPORTANCE_LOW));
+        notifications.createNotificationChannel(new NotificationChannel(CHANNEL, AppLanguage.label(this, "Descargas"), NotificationManager.IMPORTANCE_LOW));
     }
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
@@ -320,7 +320,7 @@ public class DownloadService extends Service {
         Notification.Builder builder = new Notification.Builder(this, CHANNEL)
                 .setSmallIcon(com.pixload.app.R.drawable.ic_download)
                 .setContentTitle(currentWorkTitle)
-                .setContentText(notificationDetail(title, currentWorkTitle, progress, max, done))
+                .setContentText(AppLanguage.stage(this, notificationDetail(title, currentWorkTitle, progress, max, done)))
                 .setContentIntent(content)
                 .setOnlyAlertOnce(true)
                 .setOngoing(!done);
@@ -328,7 +328,7 @@ public class DownloadService extends Service {
             builder.setProgress(max, progress, max == 0);
             Intent cancel = new Intent(this, DownloadService.class).setAction("cancel");
             PendingIntent action = PendingIntent.getService(this, 1, cancel, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
-            builder.addAction(com.pixload.app.R.drawable.tabler_x, "Cancelar", action);
+            builder.addAction(com.pixload.app.R.drawable.tabler_x, AppLanguage.label(this, "Cancelar"), action);
         }
         return builder.build();
     }

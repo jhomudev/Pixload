@@ -28,6 +28,13 @@ public class GalleryShareTest {
         assertTrue((send.getFlags() & Intent.FLAG_GRANT_READ_URI_PERMISSION) != 0);
     }
 
+    @Test public void shareLabelFollowsChosenAppLanguageWithoutChangingUri() {
+        Uri uri = Uri.parse("content://example.test/image/1");
+        Intent send = GalleryShare.intent(Collections.singletonList(new GalleryDocuments.Item(uri, "001.png", "image/png")), "Pixload download");
+        assertEquals("Pixload download", send.getClipData().getDescription().getLabel().toString());
+        assertEquals(uri, send.getClipData().getItemAt(0).getUri());
+    }
+
     @Test public void multipleFilesShareAllUrisAndUseCommonMime() {
         Uri first = Uri.parse("content://example.test/image/1");
         Uri second = Uri.parse("content://example.test/image/2");

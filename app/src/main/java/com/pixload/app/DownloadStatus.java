@@ -29,7 +29,7 @@ final class DownloadStatus {
     static DownloadStatus read(Context context) {
         SharedPreferences prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         if (!prefs.contains("title") || prefs.getBoolean("hidden", false)) return null;
-        return new DownloadStatus(prefs.getString("title", ""), prefs.getString("state", "active"),
+        return new DownloadStatus(AppLanguage.stage(context, prefs.getString("title", "")), prefs.getString("state", "active"),
                 prefs.getInt("progress", 0), prefs.getInt("max", 0),
                 prefs.getString("document_uri", ""), prefs.getString("mime_type", ""),
                 prefs.getBoolean("folder", false), prefs.getString("work_id", ""));

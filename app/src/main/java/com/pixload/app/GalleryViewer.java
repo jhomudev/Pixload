@@ -97,8 +97,8 @@ final class GalleryViewer {
                         output.write(buffer, 0, read);
                     }
                     value = new String(output.toByteArray(), StandardCharsets.UTF_8);
-                    if (output.size() >= 2 * 1024 * 1024) value += "\n\n… Texto truncado para la vista previa.";
-                } catch (Exception error) { value = "No se pudo leer el texto: " + error.getMessage(); }
+                    if (output.size() >= 2 * 1024 * 1024) value += "\n\n… " + AppLanguage.label(activity, "Texto truncado para la vista previa.");
+                } catch (Exception error) { value = AppLanguage.label(activity, "No se pudo leer el texto: ") + AppLanguage.error(activity, error.getMessage()); }
                 String result = value;
                 activity.runOnUiThread(() -> { if (text.isAttachedToWindow()) text.setText(result); });
             });

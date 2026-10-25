@@ -1,6 +1,7 @@
 package com.pixload.app;
 
 import android.app.Activity;
+import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
@@ -20,6 +21,10 @@ public class LoginActivity extends Activity {
     private boolean checking;
     private boolean finishing;
 
+    @Override protected void attachBaseContext(Context base) {
+        super.attachBaseContext(AppLanguage.wrap(base));
+    }
+
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         getWindow().setStatusBarColor(Ui.INPUT);
@@ -27,10 +32,10 @@ public class LoginActivity extends Activity {
         LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
         layout.setBackgroundColor(Ui.BACK);
-        hint = Ui.text(this, "Inicia sesión en Pixiv. Al terminar, volverás a Pixload.", 14, Ui.WHITE, false);
+        hint = Ui.text(this, getString(R.string.login_hint), 14, Ui.WHITE, false);
         hint.setPadding(Ui.dp(this, 20), Ui.dp(this, 16), Ui.dp(this, 20), Ui.dp(this, 12));
         layout.addView(hint);
-        TextView back = Ui.button(this, "Volver a Pixload", R.drawable.tabler_arrow_left, false, () -> returnToApp(false));
+        TextView back = Ui.button(this, getString(R.string.login_back), R.drawable.tabler_arrow_left, false, () -> returnToApp(false));
         layout.addView(back);
         webView = new WebView(this);
         webView.getSettings().setJavaScriptEnabled(true);

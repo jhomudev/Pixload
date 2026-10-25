@@ -1,3 +1,17 @@
 <resources>
     <string name="app_name">Pixload</string>
+    <string name="home_prompt">Pega un enlace para consultar una obra de Pixiv.</string>
+    <string name="nav_download">Descargar</string>
+    <string name="nav_preview">Vista previa</string>
+    <string name="nav_gallery">Galería</string>
+    <string name="nav_settings">Ajustes</string>
+    <string name="settings_title">Ajustes y preferencias</string>
+    <string name="language_title">Idioma de la app</string>
+    <string name="language_description">Elige el idioma de Pixload</string>
+    <string name="duplicate_title">Obra ya descargada</string>
+    <string name="duplicate_message">Esta obra ya está descargada en la carpeta elegida. ¿Quieres descargarla otra vez?</string>
+    <string name="cancel">Cancelar</string>
+    <string name="continue_download">Continuar</string>
+    <string name="login_hint">Inicia sesión en Pixiv. Al terminar, volverás a Pixload.</string>
+    <string name="login_back">Volver a Pixload</string>
 </resources>

@@ -3,6 +3,7 @@ package com.pixload.app;
 import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.Context;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Intent;
@@ -80,7 +81,7 @@ public class MainActivity extends Activity {
     private LinearLayout progressPanel;
     private PixivClient.Work work;
     private String linkValue;
-    private String message = "Pega un enlace para consultar una obra de Pixiv.";
+    private String message;
     private int tab;
     private boolean loading;
     private boolean loggedIn;
@@ -106,6 +107,10 @@ public class MainActivity extends Activity {
     private boolean swipeEligible;
     private boolean swiping;
     private String lastGalleryStatusUri = "";
+
+    @Override protected void attachBaseContext(Context base) {
+        super.attachBaseContext(AppLanguage.wrap(base));
+    }
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -135,6 +140,7 @@ public class MainActivity extends Activity {
             Object retained = getLastNonConfigurationInstance();
             if (retained instanceof PixivClient.Work) work = (PixivClient.Work) retained;
         }
+        message = getString(R.string.home_prompt);
         render();
         if (galleryEntry != null) loadGalleryEntry(galleryEntry, galleryIndex);
         consume(getIntent());
@@ -264,7 +270,7 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams name = new LinearLayout.LayoutParams(0, -2, 1);
         name.leftMargin = Ui.dp(this, 10);
         bar.addView(brand, name);
-        sessionBadge = Ui.text(this, loggedIn ? "Pixiv activo" : "Sin sesión", 12, loggedIn ? Ui.GREEN : Ui.MUTED, true);
+        sessionBadge = Ui.text(this, AppLanguage.label(this, loggedIn ? "Pixiv activo" : "Sin sesión"), 12, loggedIn ? Ui.GREEN : Ui.MUTED, true);
         Ui.withIcon(sessionBadge, loggedIn ? R.drawable.tabler_circle_check : R.drawable.tabler_circle,
                 loggedIn ? Ui.GREEN : Ui.MUTED);
         sessionBadge.setPadding(Ui.dp(this, 12), Ui.dp(this, 10), Ui.dp(this, 12), Ui.dp(this, 10));
@@ -278,7 +284,8 @@ public class MainActivity extends Activity {
         LinearLayout nav = Ui.row(this);
         nav.setPadding(Ui.dp(this, 8), Ui.dp(this, 4), Ui.dp(this, 8), Ui.dp(this, 4));
         nav.setBackground(Ui.outlined(this, Ui.RAISED, 48));
-        String[] labels = {"Descargar", "Vista previa", "Galería", "Ajustes"};
+        String[] labels = {getString(R.string.nav_download), getString(R.string.nav_preview),
+                getString(R.string.nav_gallery), getString(R.string.nav_settings)};
         int[] icons = {R.drawable.tabler_download, R.drawable.tabler_photo_edit,
                 R.drawable.tabler_layout_grid, R.drawable.tabler_settings_2};
         for (int i = 0; i < labels.length; i++) {
@@ -325,7 +332,7 @@ public class MainActivity extends Activity {
             progressNumber = Ui.text(this, "", 12, Ui.CYAN, true);
             heading.addView(progressNumber);
             progressClose = Ui.icon(this, R.drawable.tabler_x, Ui.MUTED);
-            progressClose.setContentDescription("Ocultar estado de descarga");
+            progressClose.setContentDescription(AppLanguage.label(this, "Ocultar estado de descarga"));
             progressClose.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
             progressClose.setOnClickListener(view -> {
                 DownloadStatus.dismiss(this);
@@ -350,15 +357,15 @@ public class MainActivity extends Activity {
         progressTitle.setText(current.title);
         boolean active = "active".equals(current.state);
         progressClose.setVisibility(active ? View.GONE : View.VISIBLE);
-        progressNumber.setText(active ? current.max > 0 ? Math.min(100, current.progress * 100 / current.max) + "%" : "En curso"
-                : "complete".equals(current.state) ? "Completada" : "cancelled".equals(current.state) ? "Cancelada" : "Error");
+        progressNumber.setText(active ? current.max > 0 ? Math.min(100, current.progress * 100 / current.max) + "%" : AppLanguage.label(this, "En curso")
+                : "complete".equals(current.state) ? AppLanguage.label(this, "Completada") : "cancelled".equals(current.state) ? AppLanguage.label(this, "Cancelada") : "Error");
         progressNumber.setTextColor("error".equals(current.state) ? Ui.MUTED :
                 "complete".equals(current.state) ? Ui.GREEN : Ui.CYAN);
         progressBar.setVisibility(active ? View.VISIBLE : View.GONE);
         boolean canOpen = "complete".equals(current.state) && !current.documentUri.isEmpty();
         progressOpen.setVisibility(canOpen ? View.VISIBLE : View.GONE);
         if (canOpen) {
-            progressOpen.setText("Abrir en galería");
+            progressOpen.setText(AppLanguage.label(this, "Abrir en galería"));
             Ui.withIcon(progressOpen, R.drawable.tabler_layout_grid, Ui.CYAN);
         }
         if (active) {
@@ -374,9 +381,9 @@ public class MainActivity extends Activity {
         importLastDownload();
         GalleryStore.Entry entry;
         try { entry = GalleryStore.find(this, saved.documentUri); }
-        catch (IllegalStateException error) { Toast.makeText(this, error.getMessage(), Toast.LENGTH_LONG).show(); return; }
+        catch (IllegalStateException error) { Toast.makeText(this, AppLanguage.error(this, error.getMessage()), Toast.LENGTH_LONG).show(); return; }
         if (entry == null) {
-            Toast.makeText(this, "La descarga no está disponible en la galería.", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, AppLanguage.label(this, "La descarga no está disponible en la galería."), Toast.LENGTH_LONG).show();
             return;
         }
         DownloadStatus.dismiss(this);
@@ -494,7 +501,7 @@ public class MainActivity extends Activity {
         List<GalleryStore.Entry> entries;
         try { entries = GalleryStore.list(this); }
         catch (IllegalStateException error) {
-            content.addView(Ui.text(this, error.getMessage(), 14, Ui.MUTED, false));
+            content.addView(Ui.text(this, AppLanguage.error(this, error.getMessage()), 14, Ui.MUTED, false));
             return;
         }
         if (entries.isEmpty()) {
@@ -507,7 +514,7 @@ public class MainActivity extends Activity {
             content.addView(empty);
             return;
         }
-        content.addView(Ui.text(this, entries.size() + (entries.size() == 1 ? " descarga" : " descargas"), 14, Ui.CYAN, true));
+        content.addView(Ui.text(this, entries.size() + AppLanguage.label(this, entries.size() == 1 ? " descarga" : " descargas"), 14, Ui.CYAN, true));
         Ui.gap(content, this, 12);
         for (int i = 0; i < entries.size(); i += 2) {
             LinearLayout row = Ui.row(this);
@@ -518,15 +525,15 @@ public class MainActivity extends Activity {
                 View thumb = galleryImages.tile(entry.cover, entry.mime, 140);
                 card.addView(thumb, new LinearLayout.LayoutParams(-1, Ui.dp(this, 140)));
                 Ui.gap(card, this, 8);
-                TextView name = Ui.text(this, entry.title, 14, Ui.WHITE, true);
+                TextView name = Ui.rawText(this, entry.title, 14, Ui.WHITE, true);
                 name.setMaxLines(2);
                 name.setEllipsize(android.text.TextUtils.TruncateAt.END);
                 card.addView(name);
                 Ui.gap(card, this, 4);
-                card.addView(Ui.text(this, entry.date > 0 ? DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
-                        .format(new Date(entry.date)) : "Fecha no registrada", 11, Ui.MUTED, false));
-                TextView count = Ui.text(this, entry.folder ? entry.count >= 0 ? entry.count + " elementos" : "Calculando elementos…"
-                        : "1 archivo", 11, Ui.CYAN, true);
+                card.addView(Ui.text(this, entry.date > 0 ? DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT,
+                        Locale.forLanguageTag(AppLanguage.current(this))).format(new Date(entry.date)) : "Fecha no registrada", 11, Ui.MUTED, false));
+                TextView count = Ui.text(this, entry.folder ? entry.count >= 0 ? entry.count + AppLanguage.label(this, " elementos") : "Calculando elementos…"
+                        : AppLanguage.label(this, "1 archivo"), 11, Ui.CYAN, true);
                 card.addView(count);
                 if (entry.folder && entry.count < 0) {
                     galleryIO.execute(() -> {
@@ -536,18 +543,18 @@ public class MainActivity extends Activity {
                             runOnUiThread(() -> {
                                 if (tab == 2 && galleryEntry == null && count.isAttachedToWindow()) render();
                             });
-                        } catch (Exception error) { runOnUiThread(() -> count.setText("Carpeta no disponible")); }
+                        } catch (Exception error) { runOnUiThread(() -> count.setText(AppLanguage.label(this, "Carpeta no disponible"))); }
                     });
                 }
                 Ui.gap(card, this, 7);
                 LinearLayout actions = Ui.row(this);
                 actions.setGravity(Gravity.END);
                 ImageView share = Ui.plainIconAction(this, R.drawable.tabler_share, () -> shareGalleryEntry(entry));
-                share.setContentDescription("Compartir " + entry.title);
+                share.setContentDescription(AppLanguage.label(this, "Compartir ") + entry.title);
                 actions.addView(share, new LinearLayout.LayoutParams(Ui.dp(this, 44), Ui.dp(this, 44)));
                 ImageView delete = Ui.plainIconAction(this, R.drawable.tabler_trash, Ui.DANGER,
                         () -> confirmDelete(entry));
-                delete.setContentDescription("Eliminar " + entry.title);
+                delete.setContentDescription(AppLanguage.label(this, "Eliminar ") + entry.title);
                 actions.addView(delete, new LinearLayout.LayoutParams(Ui.dp(this, 44), Ui.dp(this, 44)));
                 card.addView(actions);
                 card.setOnClickListener(view -> loadGalleryEntry(entry, 0));
@@ -589,7 +596,7 @@ public class MainActivity extends Activity {
                 runOnUiThread(() -> {
                     if (galleryEntry == null || !galleryEntry.uri.equals(entry.uri)) return;
                     galleryLoading = false;
-                    galleryError = "No se pudo acceder a la descarga: " + error.getMessage();
+                    galleryError = AppLanguage.label(this, "No se pudo acceder a la descarga: ") + AppLanguage.error(this, error.getMessage());
                     render();
                 });
             }
@@ -601,7 +608,7 @@ public class MainActivity extends Activity {
         toolbar.setPadding(Ui.dp(this, 12), Ui.dp(this, 8), Ui.dp(this, 12), Ui.dp(this, 8));
         String title = galleryItems != null && !galleryItems.isEmpty()
                 ? galleryItems.get(galleryIndex).name : galleryEntry.title;
-        TextView heading = Ui.text(this, title, 16, Ui.WHITE, true);
+        TextView heading = Ui.rawText(this, title, 16, Ui.WHITE, true);
         heading.setSingleLine(true);
         heading.setEllipsize(android.text.TextUtils.TruncateAt.END);
         LinearLayout.LayoutParams headingParams = new LinearLayout.LayoutParams(0, -2, 1);
@@ -611,7 +618,7 @@ public class MainActivity extends Activity {
             galleryFullscreen = false;
             render();
         });
-        close.setContentDescription("Salir de pantalla completa");
+        close.setContentDescription(AppLanguage.label(this, "Salir de pantalla completa"));
         toolbar.addView(close, new LinearLayout.LayoutParams(Ui.dp(this, 48), Ui.dp(this, 48)));
         root.addView(toolbar);
         fullscreenMedia = null;
@@ -657,7 +664,7 @@ public class MainActivity extends Activity {
                 tile.setBackground(Ui.outlined(this, i == galleryIndex ? Ui.BLUE : Ui.PANEL, 10));
                 tile.addView(galleryImages.tile(child.uri.toString(), child.mime, 72),
                         new LinearLayout.LayoutParams(Ui.dp(this, 72), Ui.dp(this, 72)));
-                tile.setContentDescription("Archivo " + (i + 1) + ": " + child.name);
+                tile.setContentDescription(AppLanguage.label(this, "Archivo ") + (i + 1) + ": " + child.name);
                 tile.setOnClickListener(v -> selectGalleryItem(selected));
                 LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-2, -2);
                 params.rightMargin = Ui.dp(this, 8);
@@ -683,11 +690,11 @@ public class MainActivity extends Activity {
         back.setOnClickListener(v -> returnToGallery());
         content.addView(back);
         Ui.gap(content, this, 16);
-        content.addView(Ui.text(this, entry.title, 23, Ui.WHITE, true));
+        content.addView(Ui.rawText(this, entry.title, 23, Ui.WHITE, true));
         Ui.gap(content, this, 6);
-        String detail = entry.date > 0 ? DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
-                .format(new Date(entry.date)) : "Fecha no registrada";
-        detail += "  ·  " + (entry.folder ? entry.count >= 0 ? entry.count + " elementos" : "Carpeta" : "1 archivo");
+        String detail = entry.date > 0 ? DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT,
+                Locale.forLanguageTag(AppLanguage.current(this))).format(new Date(entry.date)) : "Fecha no registrada";
+        detail += "  ·  " + (entry.folder ? entry.count >= 0 ? entry.count + AppLanguage.label(this, " elementos") : AppLanguage.label(this, "Carpeta") : AppLanguage.label(this, "1 archivo"));
         content.addView(Ui.text(this, detail, 13, Ui.MUTED, false));
         Ui.gap(content, this, 16);
         if (galleryLoading) {
@@ -700,13 +707,13 @@ public class MainActivity extends Activity {
             GalleryDocuments.Item item = galleryItems.get(galleryIndex);
             LinearLayout viewer = Ui.card(this, 12);
             LinearLayout viewerHeader = Ui.row(this);
-            TextView filename = Ui.text(this, item.name, 14, Ui.WHITE, true);
+            TextView filename = Ui.rawText(this, item.name, 14, Ui.WHITE, true);
             filename.setSingleLine(true);
             filename.setEllipsize(android.text.TextUtils.TruncateAt.END);
             viewerHeader.addView(filename, new LinearLayout.LayoutParams(0, -2, 1));
             ImageView fullscreen = Ui.plainIconAction(this, R.drawable.tabler_maximize,
                     () -> { galleryFullscreen = true; render(); });
-            fullscreen.setContentDescription("Ver en pantalla completa");
+            fullscreen.setContentDescription(AppLanguage.label(this, "Ver en pantalla completa"));
             LinearLayout.LayoutParams fullscreenParams = new LinearLayout.LayoutParams(Ui.dp(this, 44), Ui.dp(this, 44));
             fullscreenParams.leftMargin = Ui.dp(this, 8);
             viewerHeader.addView(fullscreen, fullscreenParams);
@@ -718,7 +725,7 @@ public class MainActivity extends Activity {
                 Ui.gap(content, this, 12);
                 LinearLayout controls = Ui.row(this);
                 ImageView previous = Ui.iconAction(this, R.drawable.tabler_chevron_left, () -> selectGalleryItem(galleryIndex - 1));
-                previous.setContentDescription("Archivo anterior");
+                previous.setContentDescription(AppLanguage.label(this, "Archivo anterior"));
                 previous.setEnabled(galleryIndex > 0);
                 previous.setAlpha(galleryIndex > 0 ? 1f : .35f);
                 controls.addView(previous, new LinearLayout.LayoutParams(0, -2, 1));
@@ -726,7 +733,7 @@ public class MainActivity extends Activity {
                 position.setGravity(Gravity.CENTER);
                 controls.addView(position, new LinearLayout.LayoutParams(0, -2, 1));
                 ImageView next = Ui.iconAction(this, R.drawable.tabler_chevron_right, () -> selectGalleryItem(galleryIndex + 1));
-                next.setContentDescription("Archivo siguiente");
+                next.setContentDescription(AppLanguage.label(this, "Archivo siguiente"));
                 next.setEnabled(galleryIndex + 1 < galleryItems.size());
                 next.setAlpha(galleryIndex + 1 < galleryItems.size() ? 1f : .35f);
                 controls.addView(next, new LinearLayout.LayoutParams(0, -2, 1));
@@ -743,7 +750,7 @@ public class MainActivity extends Activity {
                         LinearLayout card = Ui.card(this, 7);
                         card.addView(galleryImages.tile(child.uri.toString(), child.mime, 110),
                                 new LinearLayout.LayoutParams(-1, Ui.dp(this, 110)));
-                        TextView name = Ui.text(this, child.name, 12, j == galleryIndex ? Ui.CYAN : Ui.MUTED, j == galleryIndex);
+                        TextView name = Ui.rawText(this, child.name, 12, j == galleryIndex ? Ui.CYAN : Ui.MUTED, j == galleryIndex);
                         name.setSingleLine(true);
                         name.setEllipsize(android.text.TextUtils.TruncateAt.END);
                         card.addView(name);
@@ -785,9 +792,9 @@ public class MainActivity extends Activity {
             Intent send;
             try {
                 List<GalleryDocuments.Item> items = GalleryDocuments.list(getContentResolver(), entry);
-                send = GalleryShare.intent(items);
+                send = GalleryShare.intent(items, AppLanguage.label(this, "Descarga de Pixload"));
             } catch (Exception error) {
-                String message = "No se pudo compartir la descarga: " + error.getMessage();
+                String message = AppLanguage.label(this, "No se pudo compartir la descarga: ") + AppLanguage.error(this, error.getMessage());
                 runOnUiThread(() -> {
                     if (!isFinishing() && !isDestroyed()) Toast.makeText(this, message, Toast.LENGTH_LONG).show();
                 });
@@ -796,12 +803,12 @@ public class MainActivity extends Activity {
             runOnUiThread(() -> {
                 if (isFinishing() || isDestroyed()) return;
                 try {
-                    Intent chooser = Intent.createChooser(send, "Compartir descarga");
+                    Intent chooser = Intent.createChooser(send, AppLanguage.label(this, "Compartir descarga"));
                     chooser.setClipData(send.getClipData());
                     chooser.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
                     startActivity(chooser);
                 } catch (Exception error) {
-                    Toast.makeText(this, "No hay ninguna aplicación disponible para compartir estos archivos.",
+                    Toast.makeText(this, AppLanguage.label(this, "No hay ninguna aplicación disponible para compartir estos archivos."),
                             Toast.LENGTH_LONG).show();
                 }
             });
@@ -810,17 +817,17 @@ public class MainActivity extends Activity {
 
     private void confirmDelete(GalleryStore.Entry entry) {
         AlertDialog dialog = new AlertDialog.Builder(this, AlertDialog.THEME_DEVICE_DEFAULT_DARK)
-                .setTitle("Eliminar descarga")
-                .setMessage("Se eliminará «" + entry.title + "» y sus archivos del almacenamiento. Esta acción no se puede deshacer.")
-                .setNegativeButton("Cancelar", null)
-                .setPositiveButton("Eliminar", (confirmation, which) -> galleryIO.execute(() -> {
+                .setTitle(AppLanguage.label(this, "Eliminar descarga"))
+                .setMessage(AppLanguage.label(this, "Se eliminará «") + entry.title + AppLanguage.label(this, "» y sus archivos del almacenamiento. Esta acción no se puede deshacer."))
+                .setNegativeButton(R.string.cancel, null)
+                .setPositiveButton(AppLanguage.label(this, "Eliminar"), (confirmation, which) -> galleryIO.execute(() -> {
                     String failure = null;
                     try {
                         if (!DocumentsContract.deleteDocument(getContentResolver(), Uri.parse(entry.uri)))
                             throw new Exception("Android no permitió eliminar el archivo o la carpeta.");
                         DownloadStatus.forget(this, entry.uri);
                         GalleryStore.remove(this, entry.uri);
-                    } catch (Exception error) { failure = "No se pudo eliminar: " + error.getMessage(); }
+                    } catch (Exception error) { failure = AppLanguage.label(this, "No se pudo eliminar: ") + AppLanguage.error(this, error.getMessage()); }
                     String result = failure;
                     runOnUiThread(() -> {
                         if (result == null) {
@@ -831,7 +838,7 @@ public class MainActivity extends Activity {
                             }
                             if (tab == 2) render();
                             refreshProgress();
-                            Toast.makeText(this, "Descarga eliminada", Toast.LENGTH_SHORT).show();
+                            Toast.makeText(this, AppLanguage.label(this, "Descarga eliminada"), Toast.LENGTH_SHORT).show();
                         } else Toast.makeText(this, result, Toast.LENGTH_LONG).show();
                     });
                 })).create();
@@ -869,7 +876,7 @@ public class MainActivity extends Activity {
         link.setTextColor(Ui.WHITE);
         link.setHintTextColor(Ui.MUTED);
         link.setTextSize(13);
-        link.setHint("Pega la URL de pixiv aquí");
+        link.setHint(AppLanguage.label(this, "Pega la URL de pixiv aquí"));
         link.setBackgroundColor(Color.TRANSPARENT);
         link.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_URI);
         link.setTypeface(Ui.typeface(this, false));
@@ -878,7 +885,7 @@ public class MainActivity extends Activity {
         edit.leftMargin = Ui.dp(this, 8);
         field.addView(link, edit);
         ImageView clear = Ui.icon(this, R.drawable.tabler_x, Ui.MUTED);
-        clear.setContentDescription("Limpiar URL");
+        clear.setContentDescription(AppLanguage.label(this, "Limpiar URL"));
         clear.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
         clear.setOnClickListener(view -> {
             link.setText("");
@@ -895,7 +902,7 @@ public class MainActivity extends Activity {
         });
         field.addView(clear, new LinearLayout.LayoutParams(Ui.dp(this, 32), Ui.dp(this, 44)));
         ImageView paste = Ui.icon(this, R.drawable.tabler_clipboard, Ui.CYAN);
-        paste.setContentDescription("Pegar URL del portapapeles");
+        paste.setContentDescription(AppLanguage.label(this, "Pegar URL del portapapeles"));
         paste.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
         paste.setPadding(Ui.dp(this, 9), Ui.dp(this, 9), Ui.dp(this, 9), Ui.dp(this, 9));
         paste.setBackground(Ui.background(this, Ui.RAISED, 30));
@@ -942,13 +949,13 @@ public class MainActivity extends Activity {
         ClipboardManager clipboard = getSystemService(ClipboardManager.class);
         ClipData data = clipboard == null ? null : clipboard.getPrimaryClip();
         if (data == null || data.getItemCount() == 0) {
-            status.setText("El portapapeles está vacío.");
+            status.setText(AppLanguage.label(this, "El portapapeles está vacío."));
             return;
         }
         CharSequence value = data.getItemAt(0).coerceToText(this);
         String url = PixivLink.extract(value == null ? null : value.toString());
         if (url == null) {
-            status.setText("El portapapeles no contiene un enlace de Pixiv.");
+            status.setText(AppLanguage.label(this, "El portapapeles no contiene un enlace de Pixiv."));
             return;
         }
         link.setText(url);
@@ -964,7 +971,7 @@ public class MainActivity extends Activity {
             if (link != null) link.setText(extracted);
         }
         if (linkValue.isEmpty()) {
-            message = "Introduce un enlace de obra de Pixiv.";
+            message = AppLanguage.label(this, "Introduce un enlace de obra de Pixiv.");
             if (status != null) status.setText(message);
             return;
         }
@@ -972,7 +979,7 @@ public class MainActivity extends Activity {
         work = null;
         mp4 = defaultMp4;
         selectedPages = null;
-        message = "Consultando Pixiv…";
+        message = AppLanguage.label(this, "Consultando Pixiv…");
         getPreferences(MODE_PRIVATE).edit().putString("last_link", linkValue).apply();
         InputMethodManager keyboard = getSystemService(InputMethodManager.class);
         if (keyboard != null && link != null) keyboard.hideSoftInputFromWindow(link.getWindowToken(), 0);
@@ -985,7 +992,7 @@ public class MainActivity extends Activity {
                     if (isFinishing() || isDestroyed()) return;
                     loading = false;
                     work = found;
-                    message = "Obra lista para previsualizar.";
+                    message = AppLanguage.label(this, "Obra lista para previsualizar.");
                     tab = 1;
                     render();
                 });
@@ -993,7 +1000,7 @@ public class MainActivity extends Activity {
                 runOnUiThread(() -> {
                     if (isFinishing() || isDestroyed()) return;
                     loading = false;
-                    message = "No se pudo abrir la obra: " + e.getMessage();
+                    message = AppLanguage.label(this, "No se pudo abrir la obra: ") + AppLanguage.error(this, e.getMessage());
                     tab = 0;
                     render();
                 });
@@ -1021,9 +1028,9 @@ public class MainActivity extends Activity {
         LinearLayout summary = Ui.card(this, 16);
         summary.addView(Ui.text(this, kind() + "  ·  Pixiv #" + work.id, 12, Ui.CYAN, true));
         Ui.gap(summary, this, 10);
-        summary.addView(Ui.text(this, work.title, 22, Ui.WHITE, true));
+        summary.addView(Ui.rawText(this, work.title, 22, Ui.WHITE, true));
         Ui.gap(summary, this, 4);
-        summary.addView(Ui.text(this, "Por " + work.author, 14, Ui.MUTED, false));
+        summary.addView(Ui.text(this, AppLanguage.label(this, "Por ") + work.author, 14, Ui.MUTED, false));
         if (!work.thumbnail.isEmpty()) {
             Ui.gap(summary, this, 13);
             View cover = images.view(work.thumbnail, 190);
@@ -1040,22 +1047,22 @@ public class MainActivity extends Activity {
     }
 
     private String kind() {
-        if ("novel".equals(work.type)) return "Novela";
+        if ("novel".equals(work.type)) return AppLanguage.label(this, "Novela");
         if ("ugoira".equals(work.type)) return "Ugoira";
-        return work.pages.size() > 1 ? "Ilustración / manga" : "Ilustración";
+        return AppLanguage.label(this, work.pages.size() > 1 ? "Ilustración / manga" : "Ilustración");
     }
 
     private void imagePages() {
         int count = work.pages.size();
         LinearLayout label = Ui.row(this);
-        TextView heading = Ui.text(this, "Páginas (" + count + ")", 18, Ui.WHITE, true);
+        TextView heading = Ui.text(this, AppLanguage.label(this, "Páginas (") + count + ")", 18, Ui.WHITE, true);
         label.addView(heading, new LinearLayout.LayoutParams(0, -2, 1));
         TextView all = Ui.text(this, "Deseleccionar todas", 12, Ui.CYAN, true);
         all.setOnClickListener(v -> {
             boolean everything = true;
             for (CheckBox check : pageChecks) everything &= check.isChecked();
             for (CheckBox check : pageChecks) check.setChecked(!everything);
-            all.setText(everything ? "Seleccionar todas" : "Deseleccionar todas");
+            all.setText(AppLanguage.label(this, everything ? "Seleccionar todas" : "Deseleccionar todas"));
         });
         label.addView(all);
         content.addView(label);
@@ -1069,7 +1076,7 @@ public class MainActivity extends Activity {
                 card.addView(thumb, new LinearLayout.LayoutParams(-1, Ui.dp(this, 152)));
                 CheckBox check = new CheckBox(this);
                 check.setButtonTintList(android.content.res.ColorStateList.valueOf(Ui.CYAN));
-                check.setText("Página " + (j + 1));
+                check.setText(AppLanguage.label(this, "Página ") + (j + 1));
                 check.setTextSize(13);
                 check.setTextColor(Ui.WHITE);
                 check.setTypeface(Ui.typeface(this, false));
@@ -1126,8 +1133,8 @@ public class MainActivity extends Activity {
             }
             content.addView(presets);
             Ui.gap(content, this, 6);
-            content.addView(Ui.text(this, "Hasta " + gifPreset.getMaxWidth() + " px · " + gifPreset.getFpsMax()
-                    + " fps · " + (gifPreset.getDiffuse() ? "difusión de error" : "sin dithering"), 12, Ui.MUTED, false));
+            content.addView(Ui.text(this, AppLanguage.label(this, "Hasta ") + gifPreset.getMaxWidth() + " px · " + gifPreset.getFpsMax()
+                    + " fps · " + AppLanguage.label(this, gifPreset.getDiffuse() ? "difusión de error" : "sin dithering"), 12, Ui.MUTED, false));
         }
     }
 
@@ -1136,7 +1143,7 @@ public class MainActivity extends Activity {
         Ui.gap(content, this, 10);
         LinearLayout card = Ui.card(this, 16);
         String excerpt = work.text.length() > 600 ? work.text.substring(0, 600) + "…" : work.text;
-        card.addView(Ui.text(this, excerpt, 14, Ui.WHITE, false));
+        card.addView(Ui.rawText(this, excerpt, 14, Ui.WHITE, false));
         content.addView(card);
         Ui.gap(content, this, 10);
         content.addView(Ui.text(this, "Formato: TXT · texto proporcionado por Pixiv", 12, Ui.CYAN, false));
@@ -1162,10 +1169,10 @@ public class MainActivity extends Activity {
         selectionDownloadButton.setEnabled(!active);
         selectionDownloadButton.setAlpha(active ? .55f : 1f);
         if (active) {
-            selectionDownloadButton.setText("Descargando...");
-            selectionDownloadButton.setContentDescription("Descargando...");
+            selectionDownloadButton.setText(AppLanguage.label(this, "Descargando..."));
+            selectionDownloadButton.setContentDescription(AppLanguage.label(this, "Descargando..."));
         } else {
-            selectionDownloadButton.setText("Descargar selección");
+            selectionDownloadButton.setText(AppLanguage.label(this, "Descargar selección"));
             Ui.withIcon(selectionDownloadButton, R.drawable.tabler_download, Ui.INPUT);
         }
     }
@@ -1179,16 +1186,39 @@ public class MainActivity extends Activity {
     private void updateSelection() {
         if (selectionCount == null || work == null) return;
         if (!"image".equals(work.type)) {
-            selectionCount.setText("novel".equals(work.type) ? "1 novela · TXT" : "1 animación · " + (mp4 ? "MP4" : "GIF"));
+            selectionCount.setText("novel".equals(work.type) ? AppLanguage.label(this, "1 novela · TXT") : AppLanguage.label(this, "1 animación · ") + (mp4 ? "MP4" : "GIF"));
             return;
         }
         int count = 0;
         for (CheckBox check : pageChecks) if (check.isChecked()) count++;
-        selectionCount.setText(count + " de " + work.pages.size() + " páginas seleccionadas");
+        selectionCount.setText(count + AppLanguage.label(this, " de ") + work.pages.size() + AppLanguage.label(this, " páginas seleccionadas"));
     }
 
     private void settings() {
-        content.addView(Ui.text(this, "Ajustes y preferencias", 25, Ui.WHITE, true));
+        content.addView(Ui.text(this, getString(R.string.settings_title), 25, Ui.WHITE, true));
+        Ui.gap(content, this, 16);
+        content.addView(Ui.label(this, getString(R.string.language_title), R.drawable.tabler_settings_2, 17, Ui.CYAN));
+        Ui.gap(content, this, 10);
+        LinearLayout languages = Ui.card(this, 16);
+        languages.addView(Ui.text(this, getString(R.string.language_description), 14, Ui.WHITE, true));
+        Ui.gap(languages, this, 12);
+        LinearLayout languageChoices = Ui.row(this);
+        for (String language : new String[]{"es", "en"}) {
+            TextView option = Ui.button(this, language.equals("es") ? "Español" : "English",
+                    language.equals(AppLanguage.current(this)), () -> {
+                        if (!language.equals(AppLanguage.current(this))) {
+                            AppLanguage.select(this, language);
+                            recreate();
+                        }
+                    });
+            if (language.equals(AppLanguage.current(this))) Ui.withIcon(option, R.drawable.tabler_check, Ui.INPUT);
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, -2, 1);
+            params.rightMargin = Ui.dp(this, 8);
+            languageChoices.addView(option, params);
+        }
+        languages.addView(languageChoices);
+        content.addView(languages);
+        Ui.gap(content, this, 24);
         Ui.gap(content, this, 6);
         content.addView(Ui.text(this, "Personaliza cómo se guardan tus obras de Pixiv.", 14, Ui.MUTED, false));
         Ui.gap(content, this, 22);
@@ -1227,7 +1257,7 @@ public class MainActivity extends Activity {
         storage.addView(Ui.button(this, "Cambiar carpeta", R.drawable.tabler_folder, false, () -> pickFolder(false)));
         Ui.gap(storage, this, 14);
         CheckBox ask = new CheckBox(this);
-        ask.setText("Preguntar dónde guardar cada descarga");
+        ask.setText(AppLanguage.label(this, "Preguntar dónde guardar cada descarga"));
         ask.setTextColor(Ui.WHITE);
         ask.setTextSize(14);
         ask.setTypeface(Ui.typeface(this, false));
@@ -1261,7 +1291,7 @@ public class MainActivity extends Activity {
         String version = "0.1.0";
         try { version = getPackageManager().getPackageInfo(getPackageName(), 0).versionName; }
         catch (PackageManager.NameNotFoundException ignored) { }
-        about.addView(Ui.text(this, "Versión " + version, 14, Ui.WHITE, true));
+        about.addView(Ui.text(this, AppLanguage.label(this, "Versión ") + version, 14, Ui.WHITE, true));
         Ui.gap(about, this, 7);
         about.addView(Ui.text(this, "Pixload es una aplicación de desarrollo independiente; no es un servicio oficial de Pixiv.", 12, Ui.MUTED, false));
         content.addView(about);
@@ -1269,17 +1299,17 @@ public class MainActivity extends Activity {
 
     private void confirmLogout() {
         new AlertDialog.Builder(this, AlertDialog.THEME_DEVICE_DEFAULT_DARK)
-                .setTitle("Cerrar sesión de Pixiv")
-                .setMessage("Se borrarán las cookies de Pixiv guardadas en Pixload. No se cerrará la sesión del navegador del teléfono ni se borrarán los archivos descargados.")
-                .setNegativeButton("Cancelar", null)
-                .setPositiveButton("Cerrar sesión", (dialog, which) -> {
+                .setTitle(AppLanguage.label(this, "Cerrar sesión de Pixiv"))
+                .setMessage(AppLanguage.label(this, "Se borrarán las cookies de Pixiv guardadas en Pixload. No se cerrará la sesión del navegador del teléfono ni se borrarán los archivos descargados."))
+                .setNegativeButton(R.string.cancel, null)
+                .setPositiveButton(AppLanguage.label(this, "Cerrar sesión"), (dialog, which) -> {
                     sessionGeneration++;
                     CookieManager.getInstance().removeAllCookies(removed -> {
                         CookieManager.getInstance().flush();
                         loggedIn = false;
                         work = null;
                         selectedPages = null;
-                        message = "Sesión cerrada. Puedes entrar con otra cuenta de Pixiv.";
+                        message = AppLanguage.label(this, "Sesión cerrada. Puedes entrar con otra cuenta de Pixiv.");
                         render();
                         Toast.makeText(this, message, Toast.LENGTH_LONG).show();
                     });
@@ -1291,7 +1321,7 @@ public class MainActivity extends Activity {
         if ("image".equals(work.type)) {
             boolean chosen = false;
             for (CheckBox check : pageChecks) chosen |= check.isChecked();
-            if (!chosen) { Toast.makeText(this, "Selecciona al menos una página.", Toast.LENGTH_SHORT).show(); return; }
+            if (!chosen) { Toast.makeText(this, AppLanguage.label(this, "Selecciona al menos una página."), Toast.LENGTH_SHORT).show(); return; }
         }
         if (getPreferences(MODE_PRIVATE).getBoolean("ask", true) || !getPreferences(MODE_PRIVATE).contains("folder")) pickFolder(true);
         else queue(Uri.parse(getPreferences(MODE_PRIVATE).getString("folder", "")));
@@ -1319,7 +1349,7 @@ public class MainActivity extends Activity {
         if (downloadAfterFolderPick && work != null) queue(folder);
         else {
             getPreferences(MODE_PRIVATE).edit().putString("folder", folder.toString()).apply();
-            Toast.makeText(this, "Carpeta principal seleccionada", Toast.LENGTH_SHORT).show(); render();
+            Toast.makeText(this, AppLanguage.label(this, "Carpeta principal seleccionada"), Toast.LENGTH_SHORT).show(); render();
         }
         downloadAfterFolderPick = false;
     }
@@ -1329,15 +1359,15 @@ public class MainActivity extends Activity {
         boolean duplicate;
         try { duplicate = GalleryStore.hasCompleted(this, work.id, folder.toString()); }
         catch (IllegalStateException error) {
-            Toast.makeText(this, error.getMessage(), Toast.LENGTH_LONG).show();
+            Toast.makeText(this, AppLanguage.error(this, error.getMessage()), Toast.LENGTH_LONG).show();
             return;
         }
         if (duplicate) {
             new AlertDialog.Builder(this, AlertDialog.THEME_DEVICE_DEFAULT_DARK)
-                    .setTitle("Obra ya descargada")
-                    .setMessage("Esta obra ya está descargada en la carpeta elegida. ¿Quieres descargarla otra vez?")
-                    .setNegativeButton("Cancelar", null)
-                    .setPositiveButton("Continuar", (dialog, which) -> queueConfirmed(folder, true))
+                    .setTitle(R.string.duplicate_title)
+                    .setMessage(R.string.duplicate_message)
+                    .setNegativeButton(R.string.cancel, null)
+                    .setPositiveButton(R.string.continue_download, (dialog, which) -> queueConfirmed(folder, true))
                     .show();
             return;
         }
@@ -1384,7 +1414,7 @@ public class MainActivity extends Activity {
             intent.putExtra("job", job.toString());
             if (Build.VERSION.SDK_INT >= 26) startForegroundService(intent);
             else startService(intent);
-            message = "Descarga iniciada. Consulta la notificación para ver el avance.";
+            message = AppLanguage.label(this, "Descarga iniciada. Consulta la notificación para ver el avance.");
             refreshProgress();
             Toast.makeText(this, message, Toast.LENGTH_LONG).show();
         } catch (Exception e) {
@@ -1392,7 +1422,7 @@ public class MainActivity extends Activity {
                 DownloadStatus.write(this, "No se pudo iniciar la descarga", "error", 0, 0);
                 refreshProgress();
             }
-            Toast.makeText(this, "No se pudo iniciar la descarga: " + e.getMessage(), Toast.LENGTH_LONG).show();
+            Toast.makeText(this, AppLanguage.label(this, "No se pudo iniciar la descarga: ") + AppLanguage.error(this, e.getMessage()), Toast.LENGTH_LONG).show();
         }
     }
 
@@ -1427,7 +1457,7 @@ public class MainActivity extends Activity {
                 if (isFinishing() || isDestroyed() || generation != sessionGeneration) return;
                 loggedIn = active;
                 if (sessionBadge != null) {
-                    sessionBadge.setText(active ? "Pixiv activo" : "Sin sesión");
+                    sessionBadge.setText(AppLanguage.label(this, active ? "Pixiv activo" : "Sin sesión"));
                     sessionBadge.setTextColor(active ? Ui.GREEN : Ui.MUTED);
                     Ui.withIcon(sessionBadge, active ? R.drawable.tabler_circle_check : R.drawable.tabler_circle,
                             active ? Ui.GREEN : Ui.MUTED);
@@ -1435,7 +1465,7 @@ public class MainActivity extends Activity {
                 if (tab == 3) render();
                 if (reloadPreview && active && !linkValue.trim().isEmpty()) load();
                 else if (reloadPreview && !active) {
-                    message = "No se ha confirmado la sesión. Puedes seguir con contenido público.";
+                    message = AppLanguage.label(this, "No se ha confirmado la sesión. Puedes seguir con contenido público.");
                     Toast.makeText(this, message, Toast.LENGTH_LONG).show();
                 }
             });

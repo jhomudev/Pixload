@@ -11,11 +11,15 @@ final class GalleryShare {
     private GalleryShare() { }
 
     static Intent intent(List<GalleryDocuments.Item> items) {
+        return intent(items, "Descarga de Pixload");
+    }
+
+    static Intent intent(List<GalleryDocuments.Item> items, String label) {
         if (items.isEmpty()) throw new IllegalArgumentException("No hay archivos para compartir.");
         ArrayList<Uri> uris = new ArrayList<>(items.size());
         String mime = items.get(0).mime;
         if (mime == null || mime.isEmpty()) mime = "*/*";
-        ClipData clip = ClipData.newRawUri("Descarga de Pixload", items.get(0).uri);
+        ClipData clip = ClipData.newRawUri(label, items.get(0).uri);
         for (int i = 0; i < items.size(); i++) {
             GalleryDocuments.Item item = items.get(i);
             uris.add(item.uri);
