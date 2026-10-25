@@ -74,7 +74,8 @@ public class DownloadService extends Service {
                     try {
                         GalleryStore.add(this, new GalleryStore.Entry(saved.uri.toString(), data.getString("title"),
                                 saved.mime, saved.cover == null ? "" : saved.cover.toString(), saved.folder,
-                                saved.count, System.currentTimeMillis()));
+                                saved.count, System.currentTimeMillis(), data.optString("id", ""),
+                                data.optString("folder", "")));
                     } catch (RuntimeException ignored) { /* The last completed status can be imported on next launch. */ }
                     DownloadStatus.completed(this, label, saved.uri.toString(), saved.mime, saved.folder,
                             data.optString("id", ""));
@@ -97,7 +98,8 @@ public class DownloadService extends Service {
         String title = titleName(job.getString("title"));
         // Old jobs without "grouped" keep their original directory layout if redelivered.
         boolean grouped = job.optBoolean("grouped", true);
-        Uri folder = grouped ? createUniqueFolder(tree, title)
+        int start = startOrdinal(job.optBoolean("duplicate", false));
+        Uri folder = grouped ? createUniqueFolder(tree, title, start)
                 : DocumentsContract.buildDocumentUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree));
         JSONArray files = job.getJSONArray("files");
         if (files.length() == 0) throw new IOException("No hay archivos seleccionados.");
@@ -107,7 +109,7 @@ public class DownloadService extends Service {
         for (int i = 0; i < files.length(); i++) {
             if (cancelled || Thread.currentThread().isInterrupted()) throw new IOException("Descarga interrumpida");
             JSONObject file = files.getJSONObject(i);
-            String name = grouped ? file.getString("name") : uniqueFileName(folder, flatFileName(title, file.getString("name")));
+            String name = grouped ? file.getString("name") : uniqueFileName(folder, flatFileName(title, file.getString("name")), start);
             String label = job.getString("title") + " · " + (i + 1) + "/" + files.length();
             Uri output = DocumentsContract.createDocument(getContentResolver(), folder, mime(name), name + ".part");
             if (output == null) throw new IOException("No se pudo crear " + name);
@@ -224,10 +226,10 @@ public class DownloadService extends Service {
         } finally { source.disconnect(); }
     }
 
-    private Uri createUniqueFolder(Uri tree, String title) throws Exception {
+    private Uri createUniqueFolder(Uri tree, String title, int start) throws Exception {
         Uri parent = DocumentsContract.buildDocumentUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree));
-        for (int attempt = 0; attempt < 30; attempt++) {
-            String candidate = title + "-" + suffix();
+        for (int attempt = start; attempt < start + 30; attempt++) {
+            String candidate = folderName(title, attempt);
             if (!documentExists(parent, candidate)) {
                 Uri result = DocumentsContract.createDocument(getContentResolver(), parent,
                         DocumentsContract.Document.MIME_TYPE_DIR, candidate);
@@ -237,12 +239,9 @@ public class DownloadService extends Service {
         throw new IOException("No se pudo crear una carpeta única.");
     }
 
-    private String uniqueFileName(Uri parent, String desired) throws IOException {
-        int dot = desired.lastIndexOf('.');
-        String stem = desired.substring(0, dot);
-        String extension = desired.substring(dot);
-        for (int attempt = 0; attempt < 30; attempt++) {
-            String candidate = attempt == 0 ? desired : stem + "-" + suffix() + extension;
+    private String uniqueFileName(Uri parent, String desired, int start) throws IOException {
+        for (int attempt = start; attempt < start + 30; attempt++) {
+            String candidate = collisionName(desired, attempt);
             if (!documentExists(parent, candidate) && !documentExists(parent, candidate + ".part")) return candidate;
         }
         throw new IOException("No se pudo crear un nombre de archivo único.");
@@ -258,12 +257,16 @@ public class DownloadService extends Service {
         return false;
     }
 
-    private static String suffix() {
-        String alphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
-        java.security.SecureRandom random = new java.security.SecureRandom();
-        StringBuilder suffix = new StringBuilder(4);
-        for (int i = 0; i < 4; i++) suffix.append(alphabet.charAt(random.nextInt(alphabet.length())));
-        return suffix.toString();
+    static int startOrdinal(boolean duplicate) { return duplicate ? 2 : 1; }
+
+    static String folderName(String title, int ordinal) {
+        return ordinal <= 1 ? title : title + " (" + ordinal + ")";
+    }
+
+    static String collisionName(String desired, int ordinal) {
+        if (ordinal <= 1) return desired;
+        int dot = desired.lastIndexOf('.');
+        return desired.substring(0, dot) + " (" + ordinal + ")" + desired.substring(dot);
     }
 
     static String flatFileName(String title, String pageName) {

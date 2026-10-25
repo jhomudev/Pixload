@@ -12,9 +12,58 @@ import org.junit.runner.RunWith;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 @RunWith(AndroidJUnit4.class)
 public class GalleryStoreTest {
+    @Test public void completedWorkMatchesOnlyItsChosenTreeAndPersistsThroughMetadataRefresh() {
+        Context base = InstrumentationRegistry.getInstrumentation().getTargetContext();
+        String prefix = "gallery_duplicate_test_" + System.nanoTime();
+        Context isolated = new ContextWrapper(base) {
+            @Override public SharedPreferences getSharedPreferences(String name, int mode) {
+                return super.getSharedPreferences(prefix + "_" + name, mode);
+            }
+        };
+        try {
+            String tree = "content://example.test/tree/chosen";
+            GalleryStore.Entry entry = new GalleryStore.Entry("content://example.test/file/1", "Obra", "image/png",
+                    "", false, 1, 123L, "123", tree);
+            GalleryStore.add(isolated, entry);
+            assertTrue(GalleryStore.hasCompleted(isolated, "123", tree));
+            assertFalse(GalleryStore.hasCompleted(isolated, "123", "content://example.test/tree/other"));
+            assertFalse(GalleryStore.hasCompleted(isolated, "456", tree));
+            GalleryStore.updateMetadata(isolated, GalleryStore.find(isolated, entry.uri), 2, "cover");
+            assertTrue(GalleryStore.hasCompleted(isolated, "123", tree));
+            assertEquals("cover", GalleryStore.find(isolated, entry.uri).cover);
+            GalleryStore.add(isolated, new GalleryStore.Entry(entry.uri, "other", "", "", false, 1, 0));
+            assertEquals(1, GalleryStore.list(isolated).size());
+            GalleryStore.remove(isolated, entry.uri);
+            assertFalse(GalleryStore.hasCompleted(isolated, "123", tree));
+        } finally {
+            base.deleteSharedPreferences(prefix + "_gallery");
+        }
+    }
+
+    @Test public void legacyEntriesWithoutIdentityNeverMatch() {
+        Context base = InstrumentationRegistry.getInstrumentation().getTargetContext();
+        String prefix = "gallery_legacy_test_" + System.nanoTime();
+        Context isolated = new ContextWrapper(base) {
+            @Override public SharedPreferences getSharedPreferences(String name, int mode) {
+                return super.getSharedPreferences(prefix + "_" + name, mode);
+            }
+        };
+        try {
+            String tree = "content://example.test/tree/chosen";
+            isolated.getSharedPreferences("gallery", Context.MODE_PRIVATE).edit()
+                    .putString("entries", "[{\"uri\":\"content://example.test/file/1\",\"title\":\"Obra\"}]").commit();
+            assertFalse(GalleryStore.hasCompleted(isolated, "123", tree));
+            assertFalse(GalleryStore.hasCompleted(isolated, "", tree));
+        } finally {
+            base.deleteSharedPreferences(prefix + "_gallery");
+        }
+    }
+
     @Test public void recordsDistinctDownloadsAndImportsLegacyOnce() {
         Context base = InstrumentationRegistry.getInstrumentation().getTargetContext();
         String prefix = "gallery_test_" + System.nanoTime();

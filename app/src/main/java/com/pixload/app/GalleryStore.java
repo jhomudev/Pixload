@@ -22,8 +22,15 @@ final class GalleryStore {
         final boolean folder;
         final int count;
         final long date;
+        final String workId;
+        final String treeUri;
 
         Entry(String uri, String title, String mime, String cover, boolean folder, int count, long date) {
+            this(uri, title, mime, cover, folder, count, date, "", "");
+        }
+
+        Entry(String uri, String title, String mime, String cover, boolean folder, int count, long date,
+              String workId, String treeUri) {
             this.uri = uri;
             this.title = title;
             this.mime = mime;
@@ -31,17 +38,21 @@ final class GalleryStore {
             this.folder = folder;
             this.count = count;
             this.date = date;
+            this.workId = workId;
+            this.treeUri = treeUri;
         }
 
         JSONObject json() throws Exception {
             return new JSONObject().put("uri", uri).put("title", title).put("mime", mime)
-                    .put("cover", cover).put("folder", folder).put("count", count).put("date", date);
+                    .put("cover", cover).put("folder", folder).put("count", count).put("date", date)
+                    .put("workId", workId).put("treeUri", treeUri);
         }
 
         static Entry from(JSONObject json) {
             return new Entry(json.optString("uri"), json.optString("title", "Obra"),
                     json.optString("mime"), json.optString("cover"), json.optBoolean("folder"),
-                    json.optInt("count", -1), json.optLong("date", 0));
+                    json.optInt("count", -1), json.optLong("date", 0),
+                    json.optString("workId"), json.optString("treeUri"));
         }
     }
 
@@ -55,6 +66,14 @@ final class GalleryStore {
         if (uri == null) return null;
         for (Entry entry : list(context)) if (entry.uri.equals(uri)) return entry;
         return null;
+    }
+
+    static boolean hasCompleted(Context context, String workId, String treeUri) {
+        if (workId == null || workId.isEmpty() || treeUri == null || treeUri.isEmpty()) return false;
+        for (Entry entry : list(context)) {
+            if (workId.equals(entry.workId) && treeUri.equals(entry.treeUri)) return true;
+        }
+        return false;
     }
 
     static void add(Context context, Entry entry) {
@@ -77,7 +96,8 @@ final class GalleryStore {
     static Entry updateMetadata(Context context, Entry entry, int count, String cover) {
         synchronized (LOCK) {
             List<Entry> entries = read(context);
-            Entry updated = new Entry(entry.uri, entry.title, entry.mime, cover, entry.folder, count, entry.date);
+            Entry updated = new Entry(entry.uri, entry.title, entry.mime, cover, entry.folder, count, entry.date,
+                    entry.workId, entry.treeUri);
             for (int i = 0; i < entries.size(); i++) {
                 if (entries.get(i).uri.equals(entry.uri)) {
                     entries.set(i, updated);

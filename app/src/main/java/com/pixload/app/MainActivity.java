@@ -1324,6 +1324,26 @@ public class MainActivity extends Activity {
 
     private void queue(Uri folder) {
         if (work == null || DownloadStatus.isActive(this)) return;
+        boolean duplicate;
+        try { duplicate = GalleryStore.hasCompleted(this, work.id, folder.toString()); }
+        catch (IllegalStateException error) {
+            Toast.makeText(this, error.getMessage(), Toast.LENGTH_LONG).show();
+            return;
+        }
+        if (duplicate) {
+            new AlertDialog.Builder(this, AlertDialog.THEME_DEVICE_DEFAULT_DARK)
+                    .setTitle("Obra ya descargada")
+                    .setMessage("Esta obra ya está descargada en la carpeta elegida. ¿Quieres descargarla otra vez?")
+                    .setNegativeButton("Cancelar", null)
+                    .setPositiveButton("Continuar", (dialog, which) -> queueConfirmed(folder, true))
+                    .show();
+            return;
+        }
+        queueConfirmed(folder, false);
+    }
+
+    private void queueConfirmed(Uri folder, boolean duplicate) {
+        if (work == null || DownloadStatus.isActive(this)) return;
         boolean statusWritten = false;
         try {
             JSONObject job = new JSONObject();
@@ -1332,6 +1352,7 @@ public class MainActivity extends Activity {
             job.put("type", work.type);
             job.put("folder", folder.toString());
             job.put("grouped", "image".equals(work.type) && work.pages.size() >= 2);
+            job.put("duplicate", duplicate);
             JSONArray files = new JSONArray();
             if ("image".equals(work.type)) {
                 for (int i = 0; i < pageChecks.size(); i++) {

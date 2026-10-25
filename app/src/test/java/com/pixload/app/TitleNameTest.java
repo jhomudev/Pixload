@@ -26,6 +26,24 @@ public class TitleNameTest {
         assertEquals("Mi ilustración.png", DownloadService.flatFileName("Mi ilustración", "001.png"));
     }
 
+    @Test public void foldersUseTitleFirstAndNumberOnlyOnCollision() {
+        assertEquals("Mi obra", DownloadService.folderName("Mi obra", 1));
+        assertEquals("Mi obra (2)", DownloadService.folderName("Mi obra", 2));
+        assertEquals("Mi.obra (3)", DownloadService.folderName("Mi.obra", 3));
+    }
+
+    @Test public void confirmedRepeatStartsAtSecondNameEvenWithDifferentExtension() {
+        assertEquals(1, DownloadService.startOrdinal(false));
+        assertEquals(2, DownloadService.startOrdinal(true));
+        assertEquals("Mi obra (2).gif", DownloadService.collisionName("Mi obra.gif", DownloadService.startOrdinal(true)));
+    }
+
+    @Test public void filesKeepExtensionAfterNumberWithoutSlug() {
+        assertEquals("Mi obra.png", DownloadService.collisionName("Mi obra.png", 1));
+        assertEquals("Mi obra (2).png", DownloadService.collisionName("Mi obra.png", 2));
+        assertEquals("Mi obra (3).png", DownloadService.collisionName("Mi obra.png", 3));
+    }
+
     @Test public void animationAndNovelUseTitleInsteadOfGenericName() {
         assertEquals("Mi animación.gif", DownloadService.flatFileName("Mi animación", "animacion.gif"));
         assertEquals("Mi animación.mp4", DownloadService.flatFileName("Mi animación", "animacion.mp4"));
