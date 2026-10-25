@@ -36,7 +36,7 @@ final class PreviewImages {
         frame.setBackground(Ui.background(activity, Ui.RAISED, 12));
         frame.setClipToOutline(true);
         ImageView image = new ImageView(activity);
-        image.setContentDescription("Miniatura de la obra de Pixiv");
+        image.setContentDescription(AppLanguage.label(activity, "Miniatura de la obra de Pixiv"));
         image.setScaleType(ImageView.ScaleType.CENTER_CROP);
         frame.addView(image, new FrameLayout.LayoutParams(-1, -1));
         ProgressBar spinner = new ProgressBar(activity);

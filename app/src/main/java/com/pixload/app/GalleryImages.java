@@ -44,7 +44,7 @@ final class GalleryImages {
         }
         ImageView image = new ImageView(activity);
         image.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        image.setContentDescription("Miniatura de archivo guardado");
+        image.setContentDescription(AppLanguage.label(activity, "Miniatura de archivo guardado"));
         frame.addView(image, new FrameLayout.LayoutParams(-1, -1));
         ProgressBar spinner = new ProgressBar(activity);
         spinner.setIndeterminateTintList(android.content.res.ColorStateList.valueOf(Ui.CYAN));

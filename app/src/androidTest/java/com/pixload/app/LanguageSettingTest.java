@@ -49,6 +49,19 @@ public class LanguageSettingTest {
         }
     }
 
+    @Test public void thumbnailAccessibilityLabelsSwitchWithTheAppLanguage() {
+        Context context = isolatedContext();
+        try {
+            AppLanguage.select(context, "en");
+            assertEquals("Pixiv work thumbnail", AppLanguage.label(context, "Miniatura de la obra de Pixiv"));
+            assertEquals("Saved file thumbnail", AppLanguage.label(context, "Miniatura de archivo guardado"));
+            AppLanguage.select(context, "es");
+            assertEquals("Miniatura de la obra de Pixiv", AppLanguage.label(context, "Miniatura de la obra de Pixiv"));
+        } finally {
+            context.deleteSharedPreferences("app_language");
+        }
+    }
+
     @Test public void completedStatusKeepsOriginalWorkTitleAndStorageContract() {
         Context context = isolatedContext();
         try {

@@ -68,6 +68,8 @@ final class AppLanguage {
             case "Vista previa": return "Preview";
             case "Vista previa no disponible": return "Preview unavailable";
             case "Vista previa\nno disponible": return "Preview\nunavailable";
+            case "Miniatura de la obra de Pixiv": return "Pixiv work thumbnail";
+            case "Miniatura de archivo guardado": return "Saved file thumbnail";
             case "Cancelar": return "Cancel";
             case "Tus obras descargadas de Pixiv, reunidas en un solo lugar.": return "Your downloaded Pixiv works in one place.";
             case "Aún no hay descargas": return "No downloads yet";
