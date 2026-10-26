@@ -11,6 +11,7 @@ import android.net.Uri;
 import android.os.IBinder;
 import android.provider.DocumentsContract;
 
+import com.pixload.shared.DownloadNames;
 import com.pixload.shared.GifPreset;
 
 import org.json.JSONArray;
@@ -23,7 +24,6 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.net.HttpURLConnection;
-import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -182,7 +182,7 @@ public class DownloadService extends Service {
                 try (OutputStream target = getContentResolver().openOutputStream(output, "wt")) {
                     if (target == null) throw new IOException("No se pudo escribir el GIF.");
                     UgoiraConverter.gif(archive, frames, target, progress,
-                            GifPreset.fromId(file.optString("preset", "balanced")));
+                            GifPreset.Companion.fromId(file.optString("preset", "balanced")));
                 }
             } else if ("mp4".equals(file.getString("format"))) {
                 video = File.createTempFile("pixload-", ".mp4", getCacheDir());
@@ -259,42 +259,15 @@ public class DownloadService extends Service {
         return false;
     }
 
-    static int startOrdinal(boolean duplicate) { return duplicate ? 2 : 1; }
+    static int startOrdinal(boolean duplicate) { return DownloadNames.INSTANCE.startOrdinal(duplicate); }
 
-    static String folderName(String title, int ordinal) {
-        return ordinal <= 1 ? title : title + " (" + ordinal + ")";
-    }
+    static String folderName(String title, int ordinal) { return DownloadNames.INSTANCE.folderName(title, ordinal); }
 
-    static String collisionName(String desired, int ordinal) {
-        if (ordinal <= 1) return desired;
-        int dot = desired.lastIndexOf('.');
-        return desired.substring(0, dot) + " (" + ordinal + ")" + desired.substring(dot);
-    }
+    static String collisionName(String desired, int ordinal) { return DownloadNames.INSTANCE.collisionName(desired, ordinal); }
 
-    static String flatFileName(String title, String pageName) {
-        int dot = pageName.lastIndexOf('.');
-        return title + pageName.substring(dot);
-    }
+    static String flatFileName(String title, String pageName) { return DownloadNames.INSTANCE.flatFileName(title, pageName); }
 
-    static String titleName(String title) {
-        // Keep accents, non-Latin scripts and punctuation where the document provider permits them.
-        String clean = title.replaceAll("[\\p{Cntrl}\\p{Cf}/\\\\:*?\"<>|]", " ")
-                .replaceAll("\\s+", " ").trim().replaceAll("^[. ]+|[. ]+$", "");
-        if (clean.isEmpty()) return "Obra";
-        StringBuilder name = new StringBuilder();
-        int bytes = 0;
-        for (int index = 0; index < clean.length();) {
-            int point = clean.codePointAt(index);
-            String character = new String(Character.toChars(point));
-            int size = character.getBytes(StandardCharsets.UTF_8).length;
-            if (bytes + size > 180) break; // Reserve room for extension, collision suffix and .part.
-            name.append(character);
-            bytes += size;
-            index += Character.charCount(point);
-        }
-        String shortened = name.toString().replaceAll("[. ]+$", "");
-        return shortened.isEmpty() ? "Obra" : shortened;
-    }
+    static String titleName(String title) { return DownloadNames.INSTANCE.titleName(title); }
 
     private static String mime(String name) {
         if (name.endsWith(".zip")) return "application/zip";

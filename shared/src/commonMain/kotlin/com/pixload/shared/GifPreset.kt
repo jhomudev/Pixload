@@ -6,6 +6,6 @@ enum class GifPreset(val id: String, val maxWidth: Int, val fpsMax: Int, val dif
     QUALITY("quality", 720, 30, true);
 
     companion object {
-        @JvmStatic fun fromId(id: String?): GifPreset = entries.firstOrNull { it.id == id } ?: BALANCED
+        fun fromId(id: String?): GifPreset = entries.firstOrNull { it.id == id } ?: BALANCED
     }
 }

@@ -125,7 +125,7 @@ public class MainActivity extends Activity {
         importLastDownload();
         defaultMp4 = "mp4".equals(getPreferences(MODE_PRIVATE).getString("animation_format", "gif"));
         mp4 = defaultMp4;
-        gifPreset = GifPreset.fromId(getPreferences(MODE_PRIVATE).getString("gif_preset", "balanced"));
+        gifPreset = GifPreset.Companion.fromId(getPreferences(MODE_PRIVATE).getString("gif_preset", "balanced"));
         if (state != null) {
             tab = state.getInt("tab", 0);
             linkValue = state.getString("link", linkValue);
