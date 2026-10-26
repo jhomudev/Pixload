@@ -11,6 +11,8 @@ import android.net.Uri;
 import android.os.IBinder;
 import android.provider.DocumentsContract;
 
+import com.pixload.shared.GifPreset;
+
 import org.json.JSONArray;
 import org.json.JSONObject;
 

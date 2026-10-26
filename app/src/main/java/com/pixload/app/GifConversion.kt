@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.ImageDecoder
 import android.os.Build
+import com.pixload.shared.GifPreset
 import com.squareup.gifencoder.Color
 import com.squareup.gifencoder.ColorQuantizer
 import com.squareup.gifencoder.Ditherer
@@ -22,16 +23,6 @@ import java.io.OutputStream
 import java.nio.ByteBuffer
 import java.util.concurrent.TimeUnit
 import java.util.zip.ZipFile
-
-internal enum class GifPreset(val id: String, val maxWidth: Int, val fpsMax: Int, val diffuse: Boolean) {
-    FAST("fast", 360, 15, false),
-    BALANCED("balanced", 480, 24, true),
-    QUALITY("quality", 720, 30, true);
-
-    companion object {
-        @JvmStatic fun fromId(id: String?): GifPreset = entries.firstOrNull { it.id == id } ?: BALANCED
-    }
-}
 
 /** One decoded bitmap and one reusable ARGB buffer at a time; Square still owns its per-frame objects. */
 internal object GifConversion {

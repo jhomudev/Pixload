@@ -3,6 +3,8 @@ package com.pixload.app;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 
+import com.pixload.shared.GifPreset;
+
 import org.jcodec.api.android.AndroidSequenceEncoder;
 import org.json.JSONArray;
 import org.json.JSONObject;

@@ -9,6 +9,8 @@ import android.media.MediaMetadataRetriever;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.platform.app.InstrumentationRegistry;
 
+import com.pixload.shared.GifPreset;
+
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.junit.Test;

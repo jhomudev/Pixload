@@ -37,6 +37,8 @@ import android.widget.TextView;
 import android.widget.Toast;
 import android.widget.VideoView;
 
+import com.pixload.shared.GifPreset;
+
 import org.json.JSONArray;
 import org.json.JSONObject;
 
