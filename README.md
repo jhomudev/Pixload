@@ -35,7 +35,7 @@ Pixload utiliza endpoints AJAX no oficiales de Pixiv: su funcionamiento depende 
 
 ## Para desarrolladores
 
-Proyecto Android nativo en Java 17 con la conversión GIF en Kotlin (JVM 17), un único módulo `:app`, SDK 35. Para compilar se necesita JDK 21, Android SDK 35 y Gradle Wrapper (incluido):
+La app Android sigue en `:app` (Java 17 y conversión GIF en Kotlin, SDK 35). La migración incremental hacia Android e iOS comenzó en `:shared`, un módulo Kotlin Multiplatform para reglas sin dependencias de Android. Todavía no existe una app iOS distribuible; compilar y probar iOS requiere macOS con Xcode. Para compilar Android se necesita JDK 21, Android SDK 35 y Gradle Wrapper (incluido):
 
 ```bash
 ./gradlew :app:testDebugUnitTest :app:assembleDebug
