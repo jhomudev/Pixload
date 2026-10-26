@@ -35,7 +35,7 @@ Pixload utiliza endpoints AJAX no oficiales de Pixiv: su funcionamiento depende 
 
 ## Para desarrolladores
 
-La app Android sigue en `:app` (Java 17 y conversión GIF en Kotlin, SDK 35). La migración incremental hacia Android e iOS continúa en `:shared`, un módulo Kotlin Multiplatform con reglas compartidas y un transporte Ktor **solo para respuestas AJAX de texto**, todavía no conectado al cliente Android. Las imágenes y animaciones requieren una ruta binaria aparte. Todavía no existe una app iOS distribuible; compilarla y probarla requiere macOS con Xcode. En Linux solo se verificó la compilación de fuentes compartidas para iOS. Para compilar Android se necesita JDK 21, Android SDK 35 y Gradle Wrapper (incluido):
+La app Android sigue en `:app` (Java 17 y Kotlin para el cliente Pixiv y la conversión GIF, SDK 35). La migración incremental hacia Android e iOS continúa en `:shared`, un módulo Kotlin Multiplatform con reglas compartidas y un transporte Ktor **solo para respuestas AJAX de texto**, todavía no conectado al cliente Android. Las imágenes y animaciones requieren una ruta binaria aparte. Todavía no existe una app iOS distribuible; compilarla y probarla requiere macOS con Xcode. En Linux solo se verificó la compilación de fuentes compartidas para iOS. Para compilar Android se necesita JDK 21, Android SDK 35 y Gradle Wrapper (incluido):
 
 ```bash
 ./gradlew :shared:testAndroidHostTest :app:testDebugUnitTest :app:assembleDebug
