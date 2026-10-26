@@ -3,6 +3,7 @@ package com.pixload.app;
 import android.net.Uri;
 import android.webkit.CookieManager;
 
+import com.pixload.shared.PixivOrigins;
 import com.pixload.shared.PixivWorkLinks;
 
 import org.json.JSONArray;
@@ -135,8 +136,7 @@ final class PixivClient {
     static HttpURLConnection open(String address) throws IOException {
         URL url = new URL(address);
         String host = url.getHost().toLowerCase();
-        if (!"https".equalsIgnoreCase(url.getProtocol()) ||
-                !(host.equals("www.pixiv.net") || host.equals("pixiv.net") || host.equals("i.pximg.net"))) {
+        if (!PixivOrigins.INSTANCE.isAllowed(url.getProtocol(), host)) {
             throw new IOException("Origen de archivo no permitido.");
         }
         HttpURLConnection connection = (HttpURLConnection) url.openConnection();
@@ -145,7 +145,7 @@ final class PixivClient {
         connection.setInstanceFollowRedirects(false);
         connection.setRequestProperty("Referer", REFERER);
         connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/120.0 Mobile Safari/537.36");
-        if (host.equals("www.pixiv.net") || host.equals("pixiv.net")) {
+        if (PixivOrigins.INSTANCE.acceptsCookies(host)) {
             String cookie = CookieManager.getInstance().getCookie(BASE);
             if (cookie != null) connection.setRequestProperty("Cookie", cookie);
         }
