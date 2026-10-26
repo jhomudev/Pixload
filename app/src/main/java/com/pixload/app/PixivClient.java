@@ -3,6 +3,8 @@ package com.pixload.app;
 import android.net.Uri;
 import android.webkit.CookieManager;
 
+import com.pixload.shared.PixivWorkLinks;
+
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -15,8 +17,6 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 final class PixivClient {
     private static final String BASE = "https://www.pixiv.net";
@@ -53,21 +53,21 @@ final class PixivClient {
 
     static Work load(String input) throws Exception {
         Uri uri = Uri.parse(input.trim());
-        String host = uri.getHost();
-        if (!"pixiv.net".equalsIgnoreCase(host) && !"www.pixiv.net".equalsIgnoreCase(host)) {
-            throw new IOException("Introduce un enlace de pixiv.net.");
+        // Retain Android Uri's parsing and query decoding before pure classification.
+        // The original order checks host and scheme before reading the query parameter.
+        PixivWorkLinks.Result validation = PixivWorkLinks.INSTANCE.classify(
+                uri.getHost(), uri.getScheme(), uri.getPath(), null);
+        if (validation instanceof PixivWorkLinks.Rejected) {
+            PixivWorkLinks.Reason reason = ((PixivWorkLinks.Rejected) validation).getReason();
+            if (reason == PixivWorkLinks.Reason.HOST) throw new IOException("Introduce un enlace de pixiv.net.");
+            if (reason == PixivWorkLinks.Reason.SCHEME) throw new IOException("El enlace debe usar HTTP o HTTPS.");
         }
-        if (!"https".equalsIgnoreCase(uri.getScheme()) && !"http".equalsIgnoreCase(uri.getScheme())) {
-            throw new IOException("El enlace debe usar HTTP o HTTPS.");
-        }
-        String path = uri.getPath() == null ? "" : uri.getPath();
-        boolean novel = path.contains("novel") || path.contains("novels");
-        String id = uri.getQueryParameter("id");
-        if (id == null) {
-            Matcher matcher = Pattern.compile("/(?:artworks|novels)/(\\d+)(?:/|$)").matcher(path);
-            if (matcher.find()) id = matcher.group(1);
-        }
-        if (id == null || !id.matches("\\d+")) throw new IOException("Enlace de obra no reconocido.");
+        validation = PixivWorkLinks.INSTANCE.classify(
+                uri.getHost(), uri.getScheme(), uri.getPath(), uri.getQueryParameter("id"));
+        if (validation instanceof PixivWorkLinks.Rejected) throw new IOException("Enlace de obra no reconocido.");
+        PixivWorkLinks.Work link = (PixivWorkLinks.Work) validation;
+        boolean novel = link.getNovel();
+        String id = link.getId();
 
         String prefix = novel ? "/ajax/novel/" : "/ajax/illust/";
         JSONObject body = api(prefix + id);
