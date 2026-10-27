@@ -79,6 +79,10 @@ class DownloadService : Service() {
         /** Page being transferred and how many pages the whole work has. */
         @Volatile var pageIndex = 0
         @Volatile var pageCount = 1
+
+        /** Slice of the whole work this phase fills: the ugoira archive is half, conversion the rest. */
+        @Volatile var phaseBase = 0
+        @Volatile var phaseSpan = 100
     }
 
     private fun run(job: Job) {
@@ -221,10 +225,15 @@ class DownloadService : Service() {
     private fun convert(job: Job, file: JSONObject, output: Uri) {
         val archive = File.createTempFile("pixload-", ".zip", cacheDir)
         var video: File? = null
+        // Half the work is fetching the archive, the other half converting it.
+        job.phaseBase = 0
+        job.phaseSpan = 50
         try {
             FileOutputStream(archive).use { target ->
                 download(job, file.getString("url"), target)
             }
+            job.phaseBase = 50
+            job.phaseSpan = 50
             val frames = file.getJSONArray("frames")
             val progress = UgoiraConverter.Progress { done, total ->
                 if (job.cancelled || Thread.currentThread().isInterrupted) throw IOException("Conversión interrumpida")
@@ -344,8 +353,10 @@ class DownloadService : Service() {
         updateNotification()
     }
 
-    private fun jobPercent(job: Job, fraction: Int): Int =
-        DownloadQueueBook.overall(job.pageIndex, job.pageCount, fraction)
+    private fun jobPercent(job: Job, fraction: Int): Int {
+        val phase = job.phaseBase + fraction.coerceIn(0, 100) * job.phaseSpan / 100
+        return DownloadQueueBook.overall(job.pageIndex, job.pageCount, phase)
+    }
 
     private fun updateNotification() {
         notifications.notify(NOTIFICATION, notification())

@@ -435,7 +435,8 @@ open class MainActivity : Activity() {
     /** The queue screen refreshes in place so thumbnails are not reloaded every tick. */
     private fun refreshQueue(): Boolean {
         val items = DownloadQueue.items(this)
-        if (items.size != queueRows.size) {
+        // A finished job replaced by a new one keeps the row count but not the rows.
+        if (items.size != queueRows.size || items.map { it.id } != queueRows.map { it.id }) {
             root.post { if (showQueue) render() }
             return true
         }
@@ -573,7 +574,9 @@ open class MainActivity : Activity() {
             return
         }
         if (entry == null) {
-            Toast.makeText(this, AppLanguage.label(this, "Todavía no hay descargas para abrir."), Toast.LENGTH_LONG).show()
+            val message = if (DownloadStatus.lastUri(this) != null)
+                "La descarga no está disponible en la galería." else "Todavía no hay descargas para abrir."
+            Toast.makeText(this, AppLanguage.label(this, message), Toast.LENGTH_LONG).show()
             return
         }
         DownloadStatus.dismiss(this)
