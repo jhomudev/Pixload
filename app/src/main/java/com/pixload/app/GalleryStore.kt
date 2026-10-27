@@ -7,6 +7,13 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.ArrayList
 
+/**
+ * Strips the completion prefix DownloadStatus writes into download_status. Kotlin's
+ * String.replaceFirst(String, String) matches a literal, unlike java.lang.String.replaceFirst
+ * which is regex based, so the prefix removal is literal on purpose.
+ */
+internal fun stripCompletedPrefix(title: String): String = title.removePrefix("Descarga completada: ")
+
 internal object GalleryStore {
     private const val PREFS = "gallery"
     private val LOCK = Any()
@@ -100,7 +107,7 @@ internal object GalleryStore {
         if ("complete" != status.getString("state", "")) return
         val uri = status.getString("document_uri", "") ?: ""
         if (uri.isEmpty() || find(context, uri) != null) return
-        val title = (status.getString("title", "Obra") ?: "Obra").replaceFirst("^Descarga completada: ", "")
+        val title = stripCompletedPrefix(status.getString("title", "Obra") ?: "Obra")
         val folder = status.getBoolean("folder", false)
         val mime = status.getString("mime_type", "") ?: ""
         add(context, Entry(uri, title, mime, if (folder) "" else uri, folder, if (folder) -1 else 1, 0))

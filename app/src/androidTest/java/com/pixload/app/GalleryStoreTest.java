@@ -11,12 +11,49 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 @RunWith(AndroidJUnit4.class)
 public class GalleryStoreTest {
+    @Test public void importLastStripsTheCompletedPrefixAndAppliesFolderShape() {
+        Context base = InstrumentationRegistry.getInstrumentation().getTargetContext();
+        String prefix = "gallery_import_title_test_" + System.nanoTime();
+        Context isolated = new ContextWrapper(base) {
+            @Override public SharedPreferences getSharedPreferences(String name, int mode) {
+                return super.getSharedPreferences(prefix + "_" + name, mode);
+            }
+        };
+        try {
+            DownloadStatus.completed(isolated, "Descarga completada: Mi obra", "content://example.test/imported",
+                    "image/png", false);
+            GalleryStore.importLast(isolated);
+            GalleryStore.Entry single = GalleryStore.find(isolated, "content://example.test/imported");
+            assertNotNull(single);
+            assertEquals("Mi obra", single.title);
+            assertEquals("content://example.test/imported", single.cover);
+            assertEquals(1, single.count);
+            assertEquals(0L, single.date);
+            assertEquals("", single.workId);
+            assertEquals("", single.treeUri);
+
+            DownloadStatus.completed(isolated, "Descarga completada: Manga", "content://example.test/imported-folder",
+                    "application/vnd.android.document/directory", true);
+            GalleryStore.importLast(isolated);
+            GalleryStore.Entry folder = GalleryStore.find(isolated, "content://example.test/imported-folder");
+            assertNotNull(folder);
+            assertEquals("Manga", folder.title);
+            assertEquals("", folder.cover);
+            assertEquals(-1, folder.count);
+            assertTrue(folder.folder);
+        } finally {
+            base.deleteSharedPreferences(prefix + "_gallery");
+            base.deleteSharedPreferences(prefix + "_download_status");
+        }
+    }
+
     @Test public void completedWorkMatchesOnlyItsChosenTreeAndPersistsThroughMetadataRefresh() {
         Context base = InstrumentationRegistry.getInstrumentation().getTargetContext();
         String prefix = "gallery_duplicate_test_" + System.nanoTime();
