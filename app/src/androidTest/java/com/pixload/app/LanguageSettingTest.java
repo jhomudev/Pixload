@@ -11,6 +11,7 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertThrows;
 
 @RunWith(AndroidJUnit4.class)
 public class LanguageSettingTest {
@@ -57,6 +58,40 @@ public class LanguageSettingTest {
             assertEquals("Saved file thumbnail", AppLanguage.label(context, "Miniatura de archivo guardado"));
             AppLanguage.select(context, "es");
             assertEquals("Miniatura de la obra de Pixiv", AppLanguage.label(context, "Miniatura de la obra de Pixiv"));
+        } finally {
+            context.deleteSharedPreferences("app_language");
+        }
+    }
+
+    @Test public void invalidSelectionDoesNotChangePersistedLanguage() {
+        Context context = isolatedContext();
+        try {
+            assertEquals("es", AppLanguage.current(context));
+            AppLanguage.select(context, "en");
+            assertEquals("en", context.getSharedPreferences("app_language", Context.MODE_PRIVATE).getString("language", null));
+            IllegalArgumentException failure = assertThrows(IllegalArgumentException.class,
+                    () -> AppLanguage.select(context, "fr"));
+            assertEquals("Unsupported language", failure.getMessage());
+            assertEquals("en", AppLanguage.current(context));
+            assertEquals("en", context.getSharedPreferences("app_language", Context.MODE_PRIVATE).getString("language", null));
+            assertThrows(NullPointerException.class, () -> AppLanguage.select(context, null));
+            assertEquals("en", context.getSharedPreferences("app_language", Context.MODE_PRIVATE).getString("language", null));
+        } finally {
+            context.deleteSharedPreferences("app_language");
+        }
+    }
+
+    @Test public void stageAndErrorKeepPrefixesAndUnknownLabels() {
+        Context context = isolatedContext();
+        try {
+            AppLanguage.select(context, "en");
+            assertEquals("Error: Pixiv responded with HTTP 403", AppLanguage.stage(context, "Error: Pixiv respondió con HTTP 403"));
+            assertEquals("Downloading animation · File 2", AppLanguage.stage(context, "Descargando animación · Archivo 2"));
+            assertEquals("Could not create Mi obra", AppLanguage.error(context, "No se pudo crear Mi obra"));
+            assertEquals("Unknown label", AppLanguage.label(context, "Unknown label"));
+            assertEquals(null, AppLanguage.error(context, null));
+            AppLanguage.select(context, "es");
+            assertEquals("Pixiv respondió con HTTP 403", AppLanguage.error(context, "Pixiv respondió con HTTP 403"));
         } finally {
             context.deleteSharedPreferences("app_language");
         }
