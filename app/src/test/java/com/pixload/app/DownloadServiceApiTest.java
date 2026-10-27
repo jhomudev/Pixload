@@ -11,6 +11,7 @@ import android.os.IBinder;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -30,13 +31,12 @@ public class DownloadServiceApiTest {
         assertTrue(ExecutorService.class.isAssignableFrom(queue.getType()));
         assertTrue(Modifier.isFinal(queue.getModifiers()));
         assertEquals(AtomicInteger.class, type.getDeclaredField("pending").getType());
-        assertTrue(Modifier.isVolatile(type.getDeclaredField("cancelled").getModifiers()));
-        assertTrue(Modifier.isVolatile(type.getDeclaredField("currentWorkTitle").getModifiers()));
+        assertTrue(ConcurrentHashMap.class.isAssignableFrom(type.getDeclaredField("jobs").getType()));
     }
 
     @Test public void javaCallersKeepNamingAndNotificationMethods() throws Exception {
         Class<?> type = DownloadService.class;
-        for (String name : new String[] {"startOrdinal", "folderName", "collisionName", "flatFileName", "titleName", "notificationDetail"}) {
+        for (String name : new String[] {"startOrdinal", "folderName", "collisionName", "flatFileName", "titleName", "notificationDetail", "cancel"}) {
             Method method = null;
             for (Method candidate : type.getDeclaredMethods()) {
                 if (candidate.getName().equals(name) && Modifier.isStatic(candidate.getModifiers())) method = candidate;
