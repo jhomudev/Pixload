@@ -1,6 +1,7 @@
 package com.pixload.app;
 
 import android.content.Context;
+import android.content.ContextWrapper;
 import android.content.SharedPreferences;
 
 import androidx.test.ext.junit.runners.AndroidJUnit4;
@@ -16,9 +17,21 @@ import static org.junit.Assert.assertTrue;
 
 @RunWith(AndroidJUnit4.class)
 public class DownloadButtonStatusTest {
+    private static Context isolatedContext() {
+        Context base = InstrumentationRegistry.getInstrumentation().getTargetContext();
+        String prefix = "download_status_test_" + System.nanoTime() + "_";
+        return new ContextWrapper(base) {
+            @Override public SharedPreferences getSharedPreferences(String name, int mode) {
+                return super.getSharedPreferences(prefix + name, mode);
+            }
+            @Override public boolean deleteSharedPreferences(String name) {
+                return super.deleteSharedPreferences(prefix + name);
+            }
+        };
+    }
+
     @Test public void hiddenProgressStillBlocksNewDownloadUntilFinished() {
-        // The instrumentation APK has its own preferences, separate from user data.
-        Context context = InstrumentationRegistry.getInstrumentation().getContext();
+        Context context = isolatedContext();
         context.getSharedPreferences("download_status", Context.MODE_PRIVATE).edit().clear().commit();
         try {
             assertFalse(DownloadStatus.isActive(context));
@@ -32,12 +45,12 @@ public class DownloadButtonStatusTest {
             DownloadStatus.completed(context, "Listo", "content://test/item", "image/png", false);
             assertFalse(DownloadStatus.isActive(context));
         } finally {
-            context.getSharedPreferences("download_status", Context.MODE_PRIVATE).edit().clear().commit();
+            context.deleteSharedPreferences("download_status");
         }
     }
 
     @Test public void absentFieldsUseLegacyDefaultsAndNullForgetDoesNotEdit() {
-        Context context = InstrumentationRegistry.getInstrumentation().getContext();
+        Context context = isolatedContext();
         SharedPreferences prefs = context.getSharedPreferences("download_status", Context.MODE_PRIVATE);
         prefs.edit().clear().putString("title", "Obra").commit();
         try {
@@ -57,12 +70,12 @@ public class DownloadButtonStatusTest {
                 assertEquals(before, prefs.getAll());
             }
         } finally {
-            prefs.edit().clear().commit();
+            context.deleteSharedPreferences("download_status");
         }
     }
 
     @Test public void readStagesFieldsAndHiddenActiveStatusWithoutLosingStoredMetadata() {
-        Context context = InstrumentationRegistry.getInstrumentation().getContext();
+        Context context = isolatedContext();
         SharedPreferences prefs = context.getSharedPreferences("download_status", Context.MODE_PRIVATE);
         prefs.edit().clear().commit();
         try {
@@ -100,12 +113,12 @@ public class DownloadButtonStatusTest {
             assertNull(DownloadStatus.read(context));
             assertTrue(DownloadStatus.isActive(context));
         } finally {
-            prefs.edit().clear().commit();
+            context.deleteSharedPreferences("download_status");
         }
     }
 
     @Test public void forgetOnlyMatchingUriHidesAndRemovesSavedMetadataButPreservesCounters() {
-        Context context = InstrumentationRegistry.getInstrumentation().getContext();
+        Context context = isolatedContext();
         SharedPreferences prefs = context.getSharedPreferences("download_status", Context.MODE_PRIVATE);
         prefs.edit().clear().commit();
         try {
@@ -135,7 +148,7 @@ public class DownloadButtonStatusTest {
             DownloadStatus.completed(context, "Otra", "content://test/new", "image/gif", false);
             assertEquals("", DownloadStatus.read(context).workId);
         } finally {
-            prefs.edit().clear().commit();
+            context.deleteSharedPreferences("download_status");
         }
     }
 }
