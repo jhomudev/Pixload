@@ -7,8 +7,14 @@ import android.content.SharedPreferences;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.platform.app.InstrumentationRegistry;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.Set;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
@@ -18,6 +24,34 @@ import static org.junit.Assert.assertTrue;
 
 @RunWith(AndroidJUnit4.class)
 public class GalleryStoreTest {
+    @Test public void persistedEntriesKeepTheShippedJsonKeys() throws Exception {
+        Context base = InstrumentationRegistry.getInstrumentation().getTargetContext();
+        String prefix = "gallery_persisted_keys_test_" + System.nanoTime();
+        Context isolated = new ContextWrapper(base) {
+            @Override public SharedPreferences getSharedPreferences(String name, int mode) {
+                return super.getSharedPreferences(prefix + "_" + name, mode);
+            }
+        };
+        try {
+            GalleryStore.add(isolated, new GalleryStore.Entry("content://example.test/keys", "Obra", "image/png",
+                    "content://example.test/keys", true, 3, 1700000000000L, "999", "content://example.test/tree"));
+            String raw = isolated.getSharedPreferences("gallery", Context.MODE_PRIVATE).getString("entries", "[]");
+            JSONArray saved = new JSONArray(raw);
+            assertEquals(1, saved.length());
+            JSONObject entry = saved.getJSONObject(0);
+            JSONArray names = entry.names();
+            Set<String> keys = new HashSet<>();
+            for (int i = 0; i < names.length(); i++) keys.add(names.getString(i));
+            assertEquals(new HashSet<>(Arrays.asList("uri", "title", "mime", "cover", "folder", "count", "date",
+                    "workId", "treeUri")), keys);
+            assertEquals("content://example.test/keys", entry.getString("uri"));
+            assertEquals("Obra", entry.getString("title"));
+            assertEquals("999", entry.getString("workId"));
+        } finally {
+            base.deleteSharedPreferences(prefix + "_gallery");
+        }
+    }
+
     @Test public void importLastStripsTheCompletedPrefixAndAppliesFolderShape() {
         Context base = InstrumentationRegistry.getInstrumentation().getTargetContext();
         String prefix = "gallery_import_title_test_" + System.nanoTime();
@@ -33,11 +67,15 @@ public class GalleryStoreTest {
             GalleryStore.Entry single = GalleryStore.find(isolated, "content://example.test/imported");
             assertNotNull(single);
             assertEquals("Mi obra", single.title);
+            assertEquals("image/png", single.mime);
             assertEquals("content://example.test/imported", single.cover);
             assertEquals(1, single.count);
             assertEquals(0L, single.date);
             assertEquals("", single.workId);
             assertEquals("", single.treeUri);
+
+            GalleryStore.importLast(isolated);
+            assertEquals(1, GalleryStore.list(isolated).size());
 
             DownloadStatus.completed(isolated, "Descarga completada: Manga", "content://example.test/imported-folder",
                     "application/vnd.android.document/directory", true);
