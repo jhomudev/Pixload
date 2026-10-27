@@ -75,13 +75,17 @@ class DownloadService : Service() {
         @Volatile var cancelled = false
         @Volatile var thread: Thread? = null
         @Volatile var lastNotification = 0L
+
+        /** Page being transferred and how many pages the whole work has. */
+        @Volatile var pageIndex = 0
+        @Volatile var pageCount = 1
     }
 
     private fun run(job: Job) {
         job.thread = Thread.currentThread()
         try {
             if (job.cancelled) return
-            notifyState(job, "Preparando descarga…", 0, 0)
+            notifyState(job, 0)
             val saved = save(job)
             if (job.cancelled) return
             val label = "Descarga completada: " + job.data.getString("title")
@@ -170,7 +174,8 @@ class DownloadService : Service() {
         for (i in 0 until files.length()) {
             if (job.cancelled || Thread.currentThread().isInterrupted) throw IOException("Descarga interrumpida")
             val file = files.getJSONObject(i)
-            val label = data.getString("title") + " · " + (i + 1) + "/" + files.length()
+            job.pageIndex = i
+            job.pageCount = files.length()
             // Resolution and creation stay atomic: three workers may share the same tree.
             val created = synchronized(nameLock) {
                 val candidate = if (grouped) file.getString("name")
@@ -182,7 +187,7 @@ class DownloadService : Service() {
             val output = created.second
             try {
                 if (file.has("frames")) {
-                    convert(job, file, output, label)
+                    convert(job, file, output)
                 } else if (file.has("text")) {
                     contentResolver.openOutputStream(output, "wt").use { stream ->
                         if (stream == null) throw IOException("No se pudo escribir $name")
@@ -191,7 +196,7 @@ class DownloadService : Service() {
                 } else {
                     contentResolver.openOutputStream(output, "wt").use { stream ->
                         if (stream == null) throw IOException("No se pudo escribir $name")
-                        download(job, file.getString("url"), stream, label)
+                        download(job, file.getString("url"), stream)
                     }
                 }
                 val renamed = DocumentsContract.renameDocument(contentResolver, output, name)
@@ -199,7 +204,7 @@ class DownloadService : Service() {
                 lastFile = renamed
                 if (firstFile == null) firstFile = renamed
                 lastMime = mime(name)
-                notifyState(job, label, i + 1, files.length())
+                notifyState(job, jobPercent(job, 100))
             } catch (error: Exception) {
                 DocumentsContract.deleteDocument(contentResolver, output)
                 throw error
@@ -213,12 +218,12 @@ class DownloadService : Service() {
                                 val cover: Uri?, val count: Int)
 
     @Throws(Exception::class)
-    private fun convert(job: Job, file: JSONObject, output: Uri, label: String) {
+    private fun convert(job: Job, file: JSONObject, output: Uri) {
         val archive = File.createTempFile("pixload-", ".zip", cacheDir)
         var video: File? = null
         try {
             FileOutputStream(archive).use { target ->
-                download(job, file.getString("url"), target, "Descargando animación · $label")
+                download(job, file.getString("url"), target)
             }
             val frames = file.getJSONArray("frames")
             val progress = UgoiraConverter.Progress { done, total ->
@@ -226,12 +231,11 @@ class DownloadService : Service() {
                 val now = System.currentTimeMillis()
                 if (now - job.lastNotification > 500 || done == total) {
                     job.lastNotification = now
-                    notifyState(job, "Convirtiendo " + file.optString("format").uppercase(Locale.ROOT) + " · $done/$total",
-                        done, total)
+                    notifyState(job, jobPercent(job, if (total > 0) done * 100 / total else 0))
                 }
             }
             if ("gif" == file.getString("format")) {
-                notifyState(job, "Convirtiendo GIF · 0/" + frames.length(), 0, frames.length())
+                notifyState(job, jobPercent(job, 0))
                 contentResolver.openOutputStream(output, "wt").use { target ->
                     if (target == null) throw IOException("No se pudo escribir el GIF.")
                     UgoiraConverter.gif(archive, frames, target, progress,
@@ -260,7 +264,7 @@ class DownloadService : Service() {
     }
 
     @Throws(IOException::class)
-    private fun download(job: Job, url: String, output: OutputStream, label: String) {
+    private fun download(job: Job, url: String, output: OutputStream) {
         val source = PixivClient.open(url)
         try {
             if (source.responseCode != 200) throw IOException("Pixiv respondió con HTTP " + source.responseCode)
@@ -278,7 +282,7 @@ class DownloadService : Service() {
                     if (now - job.lastNotification > 500) {
                         job.lastNotification = now
                         val percent = if (length > 0) minOf(100L, read * 100 / length).toInt() else 0
-                        notifyState(job, label, percent, if (length > 0) 100 else 0)
+                        notifyState(job, jobPercent(job, percent))
                     }
                 }
             }
@@ -331,10 +335,17 @@ class DownloadService : Service() {
         return "image/jpeg"
     }
 
-    private fun notifyState(job: Job, title: String, progress: Int, max: Int) {
-        DownloadQueue.onProgress(this, job.queueId, progress, max)
+    /**
+     * Reports [overall], the progress of the whole work, to the queue, so a multi-page row never
+     * oscillates between the page count and the current page's byte percentage.
+     */
+    private fun notifyState(job: Job, overall: Int) {
+        DownloadQueue.onProgress(this, job.queueId, overall.coerceIn(0, 100), 100)
         updateNotification()
     }
+
+    private fun jobPercent(job: Job, fraction: Int): Int =
+        DownloadQueueBook.overall(job.pageIndex, job.pageCount, fraction)
 
     private fun updateNotification() {
         notifications.notify(NOTIFICATION, notification())

@@ -46,7 +46,16 @@ internal class DownloadStatus private constructor(
                 .putString("title", title).putString("state", "complete")
                 .putInt("progress", 100).putInt("max", 100).putBoolean("hidden", false)
                 .putString("document_uri", uri).putString("mime_type", mimeType)
-                .putBoolean("folder", folder).putString("work_id", workId).apply()
+                .putBoolean("folder", folder).putString("work_id", workId)
+                // The single status slot is overwritten by every concurrent job, so the newest
+                // successful download keeps its own record for the card action.
+                .putString("last_uri", uri).putString("last_title", title).apply()
+        }
+
+        /** Newest successfully finished download, kept even if a later job overwrote the status. */
+        @JvmStatic fun lastUri(context: Context): String? {
+            val uri = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("last_uri", "")
+            return if (uri.isNullOrEmpty()) null else uri
         }
 
         @JvmStatic fun dismiss(context: Context) {
@@ -55,7 +64,11 @@ internal class DownloadStatus private constructor(
 
         @JvmStatic fun forget(context: Context, uri: String?) {
             val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            if (uri!!.equals(prefs.getString("document_uri", ""))) {
+            if (uri!!.equals(prefs.getString("last_uri", ""))) {
+                if (!prefs.edit().remove("last_uri").remove("last_title").commit())
+                    throw IllegalStateException("No se pudo actualizar el estado de la descarga.")
+            }
+            if (uri.equals(prefs.getString("document_uri", ""))) {
                 if (!prefs.edit().putBoolean("hidden", true).remove("document_uri")
                         .remove("mime_type").remove("folder").commit())
                     throw IllegalStateException("No se pudo actualizar el estado de la descarga.")

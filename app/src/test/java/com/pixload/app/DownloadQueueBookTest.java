@@ -98,4 +98,28 @@ public class DownloadQueueBookTest {
         assertEquals(7, book.pending().get(0).max);
         assertFalse(book.progress("missing", 1, 1));
     }
+
+    /** S9: one row must report the whole work, not the page currently in flight. */
+    @Test public void overallProgressCoversTheWholeWork() {
+        assertEquals(0, DownloadQueueBook.overall(0, 1, 0));
+        assertEquals(50, DownloadQueueBook.overall(0, 1, 50));
+        assertEquals(100, DownloadQueueBook.overall(0, 1, 100));
+        assertEquals(16, DownloadQueueBook.overall(0, 3, 50));
+        assertEquals(33, DownloadQueueBook.overall(1, 3, 0));
+        assertEquals(100, DownloadQueueBook.overall(2, 3, 100));
+        assertEquals(100, DownloadQueueBook.overall(2, 3, 140));
+        assertEquals(0, DownloadQueueBook.overall(0, 3, -20));
+        assertEquals(0, DownloadQueueBook.overall(0, 0, 100));
+    }
+
+    /** S9: the queue row needs the work type and its page/file count. */
+    @Test public void enqueueKeepsTypeAndPageCount() {
+        DownloadQueueBook book = new DownloadQueueBook();
+        assertTrue(book.add("job-1", "Obra", "", 12, "manga"));
+        assertEquals(12, book.items().get(0).pages);
+        assertEquals("manga", book.items().get(0).kind);
+        assertTrue(book.add("job-2", "Obra", ""));
+        assertEquals(0, book.items().get(1).pages);
+        assertEquals("", book.items().get(1).kind);
+    }
 }

@@ -12,13 +12,17 @@ import org.json.JSONObject
  * jobs release their slot immediately.
  */
 internal class DownloadQueueBook {
-    class Item(
+    class Item @JvmOverloads constructor(
         @JvmField var id: String,
         @JvmField var title: String,
         @JvmField var thumbnail: String,
         @JvmField var state: String,
         @JvmField var progress: Int,
-        @JvmField var max: Int
+        @JvmField var max: Int,
+        /** Pages or files the work will produce; 0 when unknown (legacy rows). */
+        @JvmField var pages: Int = 0,
+        /** Work type label shown in the queue row, empty for legacy rows. */
+        @JvmField var kind: String = ""
     )
 
     private val items = ArrayList<Item>()
@@ -31,11 +35,12 @@ internal class DownloadQueueBook {
 
     @Synchronized fun isFull(): Boolean = count() >= LIMIT
 
-    @Synchronized fun add(id: String, title: String, thumbnail: String): Boolean {
+    @JvmOverloads @Synchronized fun add(id: String, title: String, thumbnail: String,
+                                        pages: Int = 0, kind: String = ""): Boolean {
         if (id.isEmpty() || isFull() || items.any { it.id == id && isPending(it) }) return false
         // A retry replaces the stale failed or interrupted row for the same work.
         items.removeAll { it.id == id }
-        items.add(Item(id, title, thumbnail, QUEUED, 0, 0))
+        items.add(Item(id, title, thumbnail, QUEUED, 0, 0, pages, kind))
         return true
     }
 
@@ -90,6 +95,16 @@ internal class DownloadQueueBook {
         const val ERROR = "error"
 
         @JvmStatic fun isPending(item: Item): Boolean = item.state == QUEUED || item.state == ACTIVE
+
+        /**
+         * Progress of the whole work: [index] finished pages plus [fraction] of the page in
+         * flight, divided by the total page count. Keeps every row on one scale.
+         */
+        @JvmStatic fun overall(index: Int, count: Int, fraction: Int): Int {
+            if (count <= 0) return 0
+            val done = index.coerceAtLeast(0) * 100 + fraction.coerceIn(0, 100)
+            return (done / count).coerceIn(0, 100)
+        }
     }
 }
 
@@ -129,7 +144,9 @@ internal object DownloadQueue {
                     item.optString("thumbnail", ""),
                     state,
                     item.optInt("progress", 0),
-                    item.optInt("max", 0)))
+                    item.optInt("max", 0),
+                    item.optInt("pages", 0),
+                    item.optString("kind", "")))
             }
             restored
         } catch (_: Exception) {
@@ -142,7 +159,8 @@ internal object DownloadQueue {
         for (item in queue.items()) {
             array.put(JSONObject().put("id", item.id).put("title", item.title)
                 .put("thumbnail", item.thumbnail).put("state", item.state)
-                .put("progress", item.progress).put("max", item.max))
+                .put("progress", item.progress).put("max", item.max)
+                .put("pages", item.pages).put("kind", item.kind))
         }
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putString(KEY, array.toString()).apply()
@@ -158,9 +176,10 @@ internal object DownloadQueue {
 
     @JvmStatic fun percent(context: Context): Int = load(context).percent()
 
-    @JvmStatic fun enqueue(context: Context, id: String, title: String, thumbnail: String): Boolean {
+    @JvmOverloads @JvmStatic fun enqueue(context: Context, id: String, title: String, thumbnail: String,
+                                          pages: Int = 0, kind: String = ""): Boolean {
         val queue = load(context)
-        val added = queue.add(id, title, thumbnail)
+        val added = queue.add(id, title, thumbnail, pages, kind)
         if (added) persist(context, queue)
         return added
     }

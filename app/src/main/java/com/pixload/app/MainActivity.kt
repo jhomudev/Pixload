@@ -281,11 +281,11 @@ open class MainActivity : Activity() {
         badge.background = Ui.background(this, Ui.RAISED, 40)
         badge.setOnClickListener { switchTab(3) }
         bar.addView(badge)
-        val queueButton = Ui.icon(this, R.drawable.tabler_list, Ui.CYAN)
+        val queueButton = Ui.icon(this, R.drawable.tabler_transfer_vertical, Ui.CYAN)
         queueButton.contentDescription = AppLanguage.label(this, "Cola de descargas")
         queueButton.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
         queueButton.setPadding(Ui.dp(this, 6f), Ui.dp(this, 6f), Ui.dp(this, 6f), Ui.dp(this, 6f))
-        queueButton.background = Ui.outlined(this, Ui.RAISED, 14)
+        queueButton.background = null
         queueButton.setOnClickListener { openQueue() }
         val queueParams = LinearLayout.LayoutParams(Ui.dp(this, 36f), Ui.dp(this, 36f))
         queueParams.leftMargin = Ui.dp(this, 8f)
@@ -358,12 +358,13 @@ open class MainActivity : Activity() {
         progressNumber!!.setTextColor(if (status.state == "error" || interrupted) Ui.MUTED
             else if (status.state == "complete") Ui.GREEN else Ui.CYAN)
         progressBar!!.visibility = if (active) View.VISIBLE else View.GONE
-        val canOpen = status.state == "complete" && !status.documentUri.isNullOrEmpty()
+        val canOpen = (status.state == "complete" && !status.documentUri.isNullOrEmpty()) ||
+            DownloadStatus.lastUri(this) != null
         progressOpen!!.visibility = if (canOpen) View.VISIBLE else View.GONE
         if (canOpen) {
             progressOpen!!.text = AppLanguage.label(this, "Abrir en galería")
             Ui.withIcon(progressOpen!!, R.drawable.tabler_layout_grid, Ui.CYAN)
-            progressOpen!!.setOnClickListener { openCompletedDownload() }
+            progressOpen!!.setOnClickListener { openLastDownload() }
         }
         if (active) {
             progressBar!!.isIndeterminate = status.max <= 0
@@ -387,7 +388,7 @@ open class MainActivity : Activity() {
         progressBar!!.progress = percent
         progressOpen!!.visibility = if (showQueue) View.GONE else View.VISIBLE
         progressOpen!!.text = AppLanguage.label(this, "Ver cola")
-        Ui.withIcon(progressOpen!!, R.drawable.tabler_list, Ui.CYAN)
+        Ui.withIcon(progressOpen!!, R.drawable.tabler_transfer_vertical, Ui.CYAN)
         progressOpen!!.setOnClickListener { openQueue() }
     }
 
@@ -413,7 +414,7 @@ open class MainActivity : Activity() {
         progressBar!!.progressTintList = android.content.res.ColorStateList.valueOf(Ui.CYAN)
         progressBar!!.indeterminateTintList = android.content.res.ColorStateList.valueOf(Ui.CYAN)
         card.addView(progressBar, LinearLayout.LayoutParams(-1, Ui.dp(this, 5f)))
-        progressOpen = Ui.button(this, "", false, Runnable { openCompletedDownload() })
+        progressOpen = Ui.button(this, "", false, Runnable { openLastDownload() })
         val openParams = LinearLayout.LayoutParams(-1, -2)
         openParams.topMargin = Ui.dp(this, 8f)
         card.addView(progressOpen, openParams)
@@ -428,7 +429,8 @@ open class MainActivity : Activity() {
         render()
     }
 
-    private class QueueRow(val id: String, val waiting: Boolean, val detail: TextView, val bar: ProgressBar?)
+    private class QueueRow(val id: String, val waiting: Boolean, val active: Boolean,
+                           val detail: TextView, val bar: ProgressBar?)
 
     /** The queue screen refreshes in place so thumbnails are not reloaded every tick. */
     private fun refreshQueue(): Boolean {
@@ -439,19 +441,19 @@ open class MainActivity : Activity() {
         }
         for (row in queueRows) {
             val item = items.firstOrNull { it.id == row.id } ?: continue
-            if (DownloadQueueBook.isPending(item) != row.waiting) {
+            val waiting = DownloadQueueBook.isPending(item)
+            val active = item.state == DownloadQueueBook.ACTIVE
+            if (waiting != row.waiting || active != row.active) {
                 root.post { if (showQueue) render() }
                 return true
             }
             // Failed and interrupted rows are static: their label comes from the row state.
-            if (!row.waiting) continue
-            if (item.max <= 0) {
-                row.detail.text = AppLanguage.label(this, "En curso")
-                continue
-            }
-            val percent = minOf(100, item.progress * 100 / item.max)
-            row.detail.text = "$percent %"
-            row.bar?.progress = percent
+            if (!waiting) continue
+            val expected = if (!active) AppLanguage.label(this, "En espera")!!
+            else if (item.max > 0) "${minOf(100, item.progress * 100 / item.max)} %"
+            else "0 %"
+            if (row.detail.text.toString() != expected) row.detail.text = expected
+            row.bar?.progress = if (item.max > 0) minOf(100, item.progress * 100 / item.max) else 0
         }
         return false
     }
@@ -464,7 +466,22 @@ open class MainActivity : Activity() {
         Ui.gap(content, this, 20)
         val items = DownloadQueue.items(this)
         if (items.isEmpty()) {
-            content.addView(Ui.text(this, "No hay descargas en curso.", 14, Ui.MUTED, false))
+            val empty = Ui.card(this, 18)
+            empty.addView(Ui.label(this, "No hay descargas en curso", R.drawable.tabler_transfer_vertical, 18, Ui.CYAN))
+            Ui.gap(empty, this, 9)
+            empty.addView(Ui.text(this,
+                "Las obras que descargues aparecerán acá con su progreso y podrás cancelarlas una por una.",
+                14, Ui.MUTED, false))
+            Ui.gap(empty, this, 14)
+            val hint = Ui.row(this)
+            hint.addView(queueChip("3 a la vez"))
+            val hintParams = LinearLayout.LayoutParams(-2, -2)
+            hintParams.leftMargin = Ui.dp(this, 8f)
+            hint.addView(queueChip("Máximo 5"), hintParams)
+            empty.addView(hint)
+            Ui.gap(empty, this, 14)
+            empty.addView(Ui.button(this, "Buscar una obra", R.drawable.tabler_search, true, Runnable { switchTab(0) }))
+            content.addView(empty)
             return
         }
         for (item in items) {
@@ -474,21 +491,24 @@ open class MainActivity : Activity() {
             val info = Ui.column(this)
             val infoParams = LinearLayout.LayoutParams(0, -2, 1f)
             infoParams.leftMargin = Ui.dp(this, 12f)
-            val title = Ui.text(this, item.title, 14, Ui.WHITE, true)
+            val title = Ui.rawText(this, item.title, 14, Ui.WHITE, true)
             title.maxLines = 2
             info.addView(title)
             Ui.gap(info, this, 4)
+            info.addView(Ui.rawText(this, queueMeta(item), 12, Ui.MUTED, false))
+            Ui.gap(info, this, 4)
             val waiting = DownloadQueueBook.isPending(item)
+            val active = item.state == DownloadQueueBook.ACTIVE
             val failed = item.state == DownloadQueueBook.ERROR
             val percent = if (item.max > 0) minOf(100, item.progress * 100 / item.max) else 0
             val detail = when {
                 failed -> AppLanguage.label(this, "Error")
                 !waiting -> AppLanguage.label(this, "Interrumpida")
-                item.max > 0 -> "$percent %"
-                else -> AppLanguage.label(this, "En curso")
+                !active -> AppLanguage.label(this, "En espera")
+                else -> "$percent %"
             }
-            val detailView = Ui.text(this, detail!!, 12,
-                if (failed) Ui.DANGER else if (waiting) Ui.CYAN else Ui.MUTED, false)
+            val detailView = Ui.rawText(this, detail!!, 12,
+                if (failed) Ui.DANGER else if (active) Ui.CYAN else Ui.MUTED, false)
             info.addView(detailView)
             row.addView(info, infoParams)
             val action = Ui.icon(this, R.drawable.tabler_x, Ui.MUTED)
@@ -501,7 +521,7 @@ open class MainActivity : Activity() {
             row.addView(action, LinearLayout.LayoutParams(Ui.dp(this, 40f), Ui.dp(this, 40f)))
             card.addView(row)
             var bar: ProgressBar? = null
-            if (waiting) {
+            if (active) {
                 Ui.gap(card, this, 10)
                 val progressBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal)
                 progressBar.max = 100
@@ -510,28 +530,69 @@ open class MainActivity : Activity() {
                 card.addView(progressBar, LinearLayout.LayoutParams(-1, Ui.dp(this, 4f)))
                 bar = progressBar
             }
-            queueRows.add(QueueRow(item.id, waiting, detailView, bar))
+            queueRows.add(QueueRow(item.id, waiting, active, detailView, bar))
             content.addView(card)
             Ui.gap(content, this, 10)
         }
         content.post { images.loadVisible() }
     }
 
-    private fun openCompletedDownload() {
-        val saved = DownloadStatus.read(this)
-        if (saved == null || saved.state != "complete" || saved.documentUri.isNullOrEmpty()) return
-        clearCompletedWork(saved)
-        importLastDownload()
-        val entry: GalleryStore.Entry?
-        try { entry = GalleryStore.find(this, saved.documentUri) }
-        catch (error: IllegalStateException) { Toast.makeText(this, AppLanguage.error(this, error.message), Toast.LENGTH_LONG).show(); return }
+    /** "Manga · 12 páginas" / "Ugoira · 1 archivo": type plus how much the item will produce. */
+    private fun queueMeta(item: DownloadQueueBook.Item): String {
+        val count = if (item.pages > 0) item.pages else 1
+        val single = item.kind == "novel" || item.kind == "ugoira"
+        val unit = if (single) AppLanguage.label(this, if (count == 1) " archivo" else " archivos")
+        else AppLanguage.label(this, if (count == 1) " página" else " páginas")
+        val kind = when (item.kind) {
+            "novel" -> AppLanguage.label(this, "Novela")
+            "ugoira" -> "Ugoira"
+            "manga" -> AppLanguage.label(this, "Manga")
+            "illustration" -> AppLanguage.label(this, "Ilustración")
+            else -> null
+        }
+        // Rows persisted by an older build have no type; show the count alone.
+        return if (kind == null) count.toString() + unit else kind + " · " + count + unit
+    }
+
+    private fun queueChip(label: String): TextView =
+        Ui.text(this, label, 11, Ui.MUTED, true).apply {
+            setPadding(Ui.dp(this@MainActivity, 10f), Ui.dp(this@MainActivity, 6f),
+                Ui.dp(this@MainActivity, 10f), Ui.dp(this@MainActivity, 6f))
+            background = Ui.background(this@MainActivity, Ui.RAISED, 40)
+        }
+
+    /**
+     * Opens the newest finished download. The single status slot is overwritten by every
+     * concurrent job, so the target resolves from the last successful completion and then from
+     * the newest gallery entry instead of trusting whichever job wrote the status last.
+     */
+    private fun openLastDownload() {
+        val entry = try { newestDownload() }
+        catch (error: IllegalStateException) {
+            Toast.makeText(this, AppLanguage.error(this, error.message), Toast.LENGTH_LONG).show()
+            return
+        }
         if (entry == null) {
-            Toast.makeText(this, AppLanguage.label(this, "La descarga no está disponible en la galería."), Toast.LENGTH_LONG).show()
+            Toast.makeText(this, AppLanguage.label(this, "Todavía no hay descargas para abrir."), Toast.LENGTH_LONG).show()
             return
         }
         DownloadStatus.dismiss(this)
         tab = 2
         loadGalleryEntry(entry, 0)
+    }
+
+    private fun newestDownload(): GalleryStore.Entry? {
+        val status = DownloadStatus.read(this)
+        if (status != null && status.state == "complete" && !status.documentUri.isNullOrEmpty()) {
+            clearCompletedWork(status)
+        }
+        importLastDownload()
+        for (uri in listOfNotNull(status?.documentUri, DownloadStatus.lastUri(this))) {
+            if (uri.isNullOrEmpty()) continue
+            GalleryStore.find(this, uri)?.let { return it }
+        }
+        // A deleted or never imported entry must not break the action while other downloads exist.
+        return GalleryStore.list(this).firstOrNull()
     }
 
     private fun clearCompletedWork(completed: DownloadStatus): Boolean {
@@ -1208,6 +1269,14 @@ open class MainActivity : Activity() {
         return AppLanguage.label(this, if (work.pages.size > 1) "Ilustración / manga" else "Ilustración")!!
     }
 
+    /** Queue rows name manga explicitly instead of sharing the preview's combined label. */
+    private fun queueKind(work: PixivClient.Work): String = when {
+        work.type == "novel" -> "novel"
+        work.type == "ugoira" -> "ugoira"
+        work.pages.size > 1 -> "manga"
+        else -> "illustration"
+    }
+
     private fun imagePages() {
         val work = work!!
         val count = work.pages.size
@@ -1334,7 +1403,7 @@ open class MainActivity : Activity() {
         button.alpha = if (enabled) 1f else .55f
         button.text = expected
         if (!enabled) button.contentDescription = expected
-        Ui.withIcon(button, if (full) R.drawable.tabler_list else R.drawable.tabler_download, Ui.INPUT)
+        Ui.withIcon(button, if (full) R.drawable.tabler_transfer_vertical else R.drawable.tabler_download, Ui.INPUT)
     }
 
     /** The same work may not be queued twice while the first copy is still pending. */
@@ -1569,7 +1638,9 @@ open class MainActivity : Activity() {
         }
         // The work id doubles as queue key so the same work cannot be enqueued twice.
         val queueId = (work.id ?: "").ifEmpty { "job:" + System.currentTimeMillis() }
-        if (!DownloadQueue.enqueue(this, queueId, work.title ?: "", work.thumbnail ?: "")) {
+        val queuedPages = if (work.type == "image") pageChecks.count { it.isChecked } else 1
+        if (!DownloadQueue.enqueue(this, queueId, work.title ?: "", work.thumbnail ?: "",
+                queuedPages, queueKind(work))) {
             Toast.makeText(this, AppLanguage.label(this, "Máximo 5 descargas en la cola."), Toast.LENGTH_SHORT).show()
             return
         }
