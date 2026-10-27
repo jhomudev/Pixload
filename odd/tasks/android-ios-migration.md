@@ -1,10 +1,10 @@
-# Migrate Pixload toward Android and iOS
+# Migrate Pixload Android to Kotlin
 Branch: develop (repository policy). Incremental delivery; no push or release authorized.
-Verification: Android unit/build; iOS builds and device checks require macOS/Xcode.
+Verification: Android host/unit/APK and scoped device checks. Historical document filename retains its original iOS scope; iOS is no longer a goal.
 
 ## Specs
 S1. "Bien. Elabora un plan para migrar la app a Kotlin para hacerla multiplataforma."
-S2. "Si, será para Android y iOS. El objetivo global de ahora en adelante será tener la app disponible para esos 2 OS."
+S2. "Si, será para Android y iOS. El objetivo global de ahora en adelante será tener la app disponible para esos 2 OS." Superseded by S13 for future work.
 S3. "Autorizado, comienza."
 S4. "Paridad con Android"
 S5. "ok, dejemos la validacion al final. Continua con lo demas"
@@ -15,13 +15,14 @@ S9. "Sí, actualizar y ejecutar GalleryShareTest"
 S10. "continua ahora"
 S11. "Sí, actualizar y probar idioma"
 S12. "Sí, actualizar y probar estado de descargas"
+S13. "si,lo autorizo. Una cosa mas, no podre tener acceso a xcode o mac. asi que ahora el objetivo global es migrar  la app android a kotlin, ya no IOS."
 
 ## Tasks
 T1 [S1-S3] inline: done; commit 4754f2d. KMP module with Android+iOS targets, shared Pixiv link extraction wired into Android; Android host tests and full unit/APK build passed. iOS simulator tests not run on Linux.
-T2 [S1-S5,S7] pending; commits a316ef4, 4aa3cce, 9101efc, 1f2ec5e, e3b38a3 (partial). Shared rules/AJAX transport established; defer additional iOS-first models and platform contracts until Android Kotlin behavior is stable.
-T3 [S2,S4,S7] blocked awaiting Android Kotlin functional migration and macOS/Xcode; commit pending. Implement iOS app/login/download/gallery/media after the Android-first path.
-T4 [S2,S4-S7] blocked awaiting macOS/Xcode + iOS device/simulator; commit pending. Verify full parity and release readiness.
-T5 [S7-S12] blocked awaiting user's real download/progress/Galería check on freshly reinstalled DownloadStatus Kotlin APK; commits 46afd0a, b98b746, 6df2f2b, a0261e9, f1faad4, 8b6c6eb (partial). DownloadButtonStatusTest passes 4/4 but synthetic tests do not verify live Pixiv/SAF downloads.
+T2 [S1-S5,S7] dropped by S13; commits a316ef4, 4aa3cce, 9101efc, 1f2ec5e, e3b38a3 (partial) remain in the Android build; no additional iOS-first portable models/platform contracts.
+T3 [S2,S4,S7] dropped by S13; no iOS app implementation.
+T4 [S2,S4-S7] dropped by S13; no iOS parity/release verification.
+T5 [S7-S13] in progress; commits 46afd0a, b98b746, 6df2f2b, a0261e9, f1faad4, 8b6c6eb (partial). User confirmed real download/progress/Galería after APK reinstall; next GalleryDocuments.java→Kotlin retains Java callers and SAF query/permission semantics, with synthetic checks before any new device install. No implicit authorization to remove :shared/KMP.
 
 ## Log
 L1. Original request verbatim: "Bien. Elabora un plan para migrar la app a Kotlin para hacerla multiplataforma."
@@ -64,4 +65,7 @@ L37. User selected verbatim: "Sí, actualizar y probar estado de descargas" for 
 L38. First phone run RED: signer matched and DownloadService 0 at preflight/immediately before in-place app/test APK installs (`Success` both). DownloadButtonStatusTest command exit 3; 3/4 passed, matching-URI forget failed with `IllegalStateException: No se pudo actualizar el estado de la descarga.`. Read-only device logcat confirmed `SharedPreferencesImpl` could not create `/data/user/0/com.pixload.app.test/shared_prefs/download_status.xml`; the test APK Context's memory `apply()` concealed disk-write failure, while `commit()` reported it. Production DownloadStatus preserves the old synchronous failure branch; do not weaken it. Corrected test isolation to a unique namespaced `ContextWrapper` over target app context, mirroring GalleryStoreTest/LanguageSettingTest, with preference deletion in finally. No user download preferences touched by the tests. Corrected test APK build exit 0; reinstalled only the test APK (Success), left app APK unchanged, repeated same class with idle DownloadService, exit 0 `OK (4 tests)`, `INSTRUMENTATION_CODE: -1`. Namespaced target-context preferences are deleted per test. RED/GREEN diagnosed a test-fixture failure, not a production DownloadStatus change; fixture fix in commit 8b6c6eb, native committed assess vs f1faad4: medium, reviewDue=false. No push.
 L39. After 4/4 synthetic device tests, ask the user to try one ordinary download and check that progress and completed gallery item behave as before on the already-installed APK. This is manual end-to-end feedback, not a request to uninstall/update again. Wait for feedback before further persistence/service migrations; no push.
 L40. User request verbatim: "desinstalé la app en el celular. reinstalala paraque yo testee lo que pediste." User uninstalled the app themselves and authorized installing the latest built debug APK to manually test a real download, progress and Galería. Do not install test APK or claim to preserve data after a user-initiated uninstall. No push.
-L41. Unique wireless device was motorola edge 30 pro. Initial preflight exit 1 before install because absent-package `pm path` returned nonzero under `set -e`; corrected preflight handled this expected absence explicitly, confirmed `com.pixload.app` absent and no DownloadService, then `adb install app/build/outputs/apk/debug/app-debug.apk` exit 0 `Success`; `pm path com.pixload.app` returned base.apk path. No test APK installed, no uninstall performed by agent. Await user's real download/progress/Galería result. No push.
+L41. Unique wireless device was motorola edge 30 pro. Initial preflight exit 1 before install because absent-package `pm path` returned nonzero under `set -e`; corrected preflight handled this expected absence explicitly, confirmed `com.pixload.app` absent and no DownloadService, then `adb install app/build/outputs/apk/debug/app-debug.apk` exit 0 `Success`; `pm path com.pixload.app` returned base.apk path. No test APK installed, no uninstall performed by agent. No push.
+L42. User report verbatim: "ya hice las pruebas, todo funciona bien. Dime que sigue antes de ocntinuar?" Confirms manually requested real download, progress and Galería. Recommended GalleryDocuments as next bounded Android unit; no writes before authorization.
+L43. User correction/authorization verbatim: "si,lo autorizo. Una cosa mas, no podre tener acceso a xcode o mac. asi que ahora el objetivo global es migrar  la app android a kotlin, ya no IOS." This supersedes the Android+iOS goal (S2): T2-T4 are dropped, not waiting for Mac. Keep already integrated :shared working for Android rather than deleting it without a separate request. Proceed with GalleryDocuments Java→Kotlin as T5 unit; preserve SAF cursor/query errors, URI sorting, Java Item fields and GalleryShare/MainActivity callers. No phone update or push authorized.
+L44. GalleryDocuments Kotlin unit: worker baseline and post-conversion :shared:testAndroidHostTest :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest exit 0; no meaningful RED for behavior-preserving translation. Parent removed empty Java placeholder and selected Java CASE_INSENSITIVE_ORDER to retain filename sort semantics. Read-only verifier item 2 found no production source blocker; test-only blocker: ContentResolver.wrap(ContentProvider) exists from API 29 while minSdk=26. Corrected synthetic provider test class with @SdkSuppress(minSdkVersion=29); limited recheck cleared blocker but API26–28 remain without this class's instrumented coverage. App code still uses minSdk-compatible APIs; parent :shared:testAndroidHostTest :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest exit 0 (BUILD SUCCESSFUL, 82 tasks). Real SAF/device behavior and instrumented tests not yet run. Risk: item 2 (SAF URI access/permission error mapping). No phone install or push authorized.
