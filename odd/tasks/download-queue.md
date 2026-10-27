@@ -20,16 +20,20 @@ S7. Existing behaviour that must not change: SAF folder grant, duplicate-work co
 
 ## Tasks
 
-T1 [S1,S3,S5,S6] inline: `DownloadQueue` store with per-job state, FIFO order, 5-slot cap counting queued+active, complete/error/cancel release, aggregate progress, JSON persistence on state transitions only, interrupted recovery on load; pure state book covered by JVM tests. Commit: pending.
+T1 [S1,S3,S5,S6] inline: `DownloadQueue` store with per-job state, FIFO order, 5-slot cap counting queued+active, complete/error/cancel release, aggregate progress, JSON persistence on state transitions only, interrupted recovery on load; pure state book covered by JVM tests. Commit 3f2b808. Evidence: `DownloadQueueBookTest` green.
 
-T2 [S1,S5,S6] inline: `DownloadService` three-thread pool, per-job cancellation token, aggregated summary notification, queue store updates, unchanged SAF/naming/gallery behaviour. Commit: pending.
+T2 [S1,S5,S6] inline: `DownloadService` three-thread pool, per-job cancellation token, aggregated summary notification, queue store updates, unchanged SAF/naming/gallery behaviour. Commit 6627c6f. Evidence: JVM suite green, `assembleDebug` green.
 
-T3 [S2,S4,S6] inline: header icon button next to "Pixiv activo", queue screen (thumbnail, title, per-item progress and cancel), "Descargar selección" blocked only when the queue is full. Commit: pending.
+T3 [S2,S4,S6] inline: header icon button next to "Pixiv activo", queue screen (thumbnail, title, per-item progress and cancel), "Descargar selección" blocked only when the queue is full. Commit ac688af. Evidence: `assembleDebug` and `assembleDebugAndroidTest` green.
 
-T4 [S2,S3] inline: device verification by the user and logbook close. Commit: pending.
+T4 [S2,S3] pending: device verification by the user (visual queue screen, 3 concurrent jobs, per-item cancel, summary notification, interrupted recovery). Requires explicit install authorization.
 
 ## Log
 
 L1. User request verbatim: "Bien. Ahora quiero que desarrolles la funcionalidad de descargas simultaneas, una vista de cola de descargas en la que se enlisten las descargas en curso (cada item debe tener miniatura imagen, titulo de la obra y avance), solo permitir un maximo de 5 descargas en la cola. El boton que me lleve a la vista de la cola (boton con icono representativo, no texto), debe estar al lado del texto "Pixiv acivo", no en el menu en la parte inferior. Si tienes dudas, preguntame."
 
 L2. Concurrency answered with "Hasta 3 a la vez": 3 workers, FIFO beyond that. The current service already serialises everything on a single-thread executor and the UI aborts any new download while `DownloadStatus.isActive`, so both the executor and the guard must change.
+
+L3. Design decisions derived from the specs. `DownloadStatus` stays as the single record for the last finished job (gallery import and "Abrir en galería" keep working); the new `DownloadQueue` owns per-job state and is authoritative while any job is pending. The bottom card shows the aggregate queue while jobs are pending and falls back to the old rendering otherwise. Because a queue of 5 only makes sense if you can enqueue a second work, "Descargar selección" is disabled only when the queue is full ("Cola llena") instead of while anything is active. A variant of S6: the notification shows `N en curso · X %` rather than `N de M descargas` because finished jobs leave the queue and there is no stable total to divide by. A failed job stays in the queue in red with a dismiss action instead of vanishing, and stale failed entries are dropped on the next process start. Process death recovery relies on `START_NOT_STICKY` (was `START_REDELIVER_INTENT`) so an interrupted queue never silently re-downloads behind an "Interrumpida" row. S7 addition required by concurrency: SAF name resolution and `.part` creation are serialised under one lock, otherwise two workers could pick the same free filename in the same tree.
+
+L4. Verification. JVM: `DownloadQueueBookTest` (limit, FIFO, slot release, duplicate id, aggregate percent, transitions) plus the whole existing suite green, including `DownloadServiceApiTest` updated to pin the new `jobs` map instead of the removed `cancelled`/`currentWorkTitle` fields. Build: `:shared:testAndroidHostTest`, `:app:testDebugUnitTest`, `:app:assembleDebug`, `:app:assembleDebugAndroidTest` all green. Not run: instrumented persistence round-trip for `DownloadQueue` (JSON prefs need a device) and any on-device visual or concurrency check; both remain pending in T4.
