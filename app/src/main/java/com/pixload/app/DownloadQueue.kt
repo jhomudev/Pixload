@@ -33,6 +33,8 @@ internal class DownloadQueueBook {
 
     @Synchronized fun add(id: String, title: String, thumbnail: String): Boolean {
         if (id.isEmpty() || isFull() || items.any { it.id == id && isPending(it) }) return false
+        // A retry replaces the stale failed or interrupted row for the same work.
+        items.removeAll { it.id == id }
         items.add(Item(id, title, thumbnail, QUEUED, 0, 0))
         return true
     }

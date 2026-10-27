@@ -209,6 +209,7 @@ internal object AppLanguage {
             "Cancelar descarga" -> "Cancel download"
             "Quitar" -> "Remove"
             "Máximo 5 descargas en la cola." -> "At most 5 downloads in the queue."
+            "Esta obra ya se está descargando." -> "This work is already downloading."
             "Cola llena" -> "Queue full"
             "Descarga interrumpida" -> "Download interrupted"
             "Interrumpida" -> "Interrupted"

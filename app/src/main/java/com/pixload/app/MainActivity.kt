@@ -385,7 +385,7 @@ open class MainActivity : Activity() {
         progressBar!!.visibility = View.VISIBLE
         progressBar!!.isIndeterminate = false
         progressBar!!.progress = percent
-        progressOpen!!.visibility = View.VISIBLE
+        progressOpen!!.visibility = if (showQueue) View.GONE else View.VISIBLE
         progressOpen!!.text = AppLanguage.label(this, "Ver cola")
         Ui.withIcon(progressOpen!!, R.drawable.tabler_list, Ui.CYAN)
         progressOpen!!.setOnClickListener { openQueue() }
@@ -443,6 +443,8 @@ open class MainActivity : Activity() {
                 root.post { if (showQueue) render() }
                 return true
             }
+            // Failed and interrupted rows are static: their label comes from the row state.
+            if (!row.waiting) continue
             if (item.max <= 0) {
                 row.detail.text = AppLanguage.label(this, "En curso")
                 continue
@@ -1317,18 +1319,29 @@ open class MainActivity : Activity() {
 
     private fun updateDownloadButton() {
         val button = selectionDownloadButton ?: return
+        val current = work
+        val pendingWork = current != null && isWorkPending(current)
         val full = DownloadQueue.isFull(this)
-        if (button.isEnabled == !full) return
-        button.isEnabled = !full
-        button.alpha = if (full) .55f else 1f
-        if (full) {
-            button.text = AppLanguage.label(this, "Cola llena")
-            button.contentDescription = AppLanguage.label(this, "Cola llena")
-            Ui.withIcon(button, R.drawable.tabler_list, Ui.INPUT)
-        } else {
-            button.text = AppLanguage.label(this, "Descargar selección")
-            Ui.withIcon(button, R.drawable.tabler_download, Ui.INPUT)
+        val enabled = !full && !pendingWork
+        val label = when {
+            pendingWork -> "Descargando..."
+            full -> "Cola llena"
+            else -> "Descargar selección"
         }
+        val expected = AppLanguage.label(this, label)
+        if (button.isEnabled == enabled && button.text.toString() == expected) return
+        button.isEnabled = enabled
+        button.alpha = if (enabled) 1f else .55f
+        button.text = expected
+        if (!enabled) button.contentDescription = expected
+        Ui.withIcon(button, if (full) R.drawable.tabler_list else R.drawable.tabler_download, Ui.INPUT)
+    }
+
+    /** The same work may not be queued twice while the first copy is still pending. */
+    private fun isWorkPending(target: PixivClient.Work): Boolean {
+        val id = target.id ?: return false
+        if (id.isEmpty()) return false
+        return DownloadQueue.pending(this).any { it.id == id }
     }
 
     private fun syncSelection() {
@@ -1522,6 +1535,10 @@ open class MainActivity : Activity() {
             Toast.makeText(this, AppLanguage.label(this, "Máximo 5 descargas en la cola."), Toast.LENGTH_SHORT).show()
             return
         }
+        if (isWorkPending(work)) {
+            Toast.makeText(this, AppLanguage.label(this, "Esta obra ya se está descargando."), Toast.LENGTH_SHORT).show()
+            return
+        }
         val duplicate: Boolean
         try { duplicate = GalleryStore.hasCompleted(this, work.id, folder.toString()) }
         catch (error: IllegalStateException) {
@@ -1546,7 +1563,12 @@ open class MainActivity : Activity() {
             Toast.makeText(this, AppLanguage.label(this, "Máximo 5 descargas en la cola."), Toast.LENGTH_SHORT).show()
             return
         }
-        val queueId = (work.id ?: "") + ":" + System.currentTimeMillis()
+        if (isWorkPending(work)) {
+            Toast.makeText(this, AppLanguage.label(this, "Esta obra ya se está descargando."), Toast.LENGTH_SHORT).show()
+            return
+        }
+        // The work id doubles as queue key so the same work cannot be enqueued twice.
+        val queueId = (work.id ?: "").ifEmpty { "job:" + System.currentTimeMillis() }
         if (!DownloadQueue.enqueue(this, queueId, work.title ?: "", work.thumbnail ?: "")) {
             Toast.makeText(this, AppLanguage.label(this, "Máximo 5 descargas en la cola."), Toast.LENGTH_SHORT).show()
             return

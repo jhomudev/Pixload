@@ -129,20 +129,27 @@ class DownloadService : Service() {
         lastFinishedTitle = job?.title ?: lastFinishedTitle
         lastFinishedStage = "Descarga cancelada"
         updateNotification()
+        if (pending.get() == 0) {
+            stopForeground(STOP_FOREGROUND_DETACH)
+            stopSelf()
+        }
     }
 
     private fun cancelAll() {
+        // Jobs finish through their own cancellation flag; shutting the pool down here could
+        // reject a start that arrives while this instance is still alive.
         for (job in jobs.values) {
             job.cancelled = true
+            job.thread?.interrupt()
             DownloadQueue.finish(this, job.queueId)
         }
-        jobs.clear()
         DownloadStatus.write(this, "Descarga cancelada", "cancelled", 0, 0)
         lastFinishedStage = "Descarga cancelada"
-        queue.shutdownNow()
-        notifications.notify(NOTIFICATION, notification())
-        stopForeground(STOP_FOREGROUND_DETACH)
-        stopSelf()
+        updateNotification()
+        if (pending.get() == 0) {
+            stopForeground(STOP_FOREGROUND_DETACH)
+            stopSelf()
+        }
     }
 
     @Throws(Exception::class)

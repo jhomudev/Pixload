@@ -76,6 +76,17 @@ public class DownloadQueueBookTest {
         assertEquals(75, book.percent());
     }
 
+    @Test public void retryReplacesAStaleFailedRow() {
+        DownloadQueueBook book = new DownloadQueueBook();
+        book.add("same", "Obra", "");
+        book.state("same", DownloadQueueBook.ERROR, 0, 0);
+        assertEquals(0, book.count());
+        assertTrue(book.add("same", "Obra", ""));
+        assertEquals(1, book.items().size());
+        assertEquals(DownloadQueueBook.QUEUED, book.items().get(0).state);
+        assertEquals(1, book.count());
+    }
+
     @Test public void tracksProgressAndStateTransitions() {
         DownloadQueueBook book = new DownloadQueueBook();
         book.add("job", "Obra", "");
