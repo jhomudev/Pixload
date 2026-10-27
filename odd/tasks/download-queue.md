@@ -26,6 +26,10 @@ S10. The queue screen gets a real empty state instead of one muted sentence. (Us
 
 S11. The queue button in the header uses a vertical transfer icon with a ghost style: no outline, no filled box. (User verbatim: "Cambia el icono de ver cola a un icono transfer-vertical, y que sea estilo ghost, no outline".)
 
+S12. The bottom card's "Abrir en galería" action also works while the queue screen is open: opening a finished work leaves that screen instead of re-rendering it. (User verbatim: "cuando hago una sola descarga si funciona, pero cuando hay una cola NO".)
+
+S13. When a queue finishes, the link box and the preview of the queued work are cleared, whichever job wrote the last finished status. (User verbatim: "Ademas cuando hay una cola, al terminar las descargas, el input URL y la vista previa no se limpian".)
+
 ## Tasks
 
 T1 [S1,S3,S5,S6] inline: `DownloadQueue` store with per-job state, FIFO order, 5-slot cap counting queued+active, complete/error/cancel release, aggregate progress, JSON persistence on state transitions only, interrupted recovery on load; pure state book covered by JVM tests. Commit 3f2b808. Evidence: `DownloadQueueBookTest` green.
@@ -46,6 +50,10 @@ T8 [S10,S11] inline: commit decba12. queue empty state card with icon, explanati
 
 T9 [S8,S9,S10,S11] pending: device verification of the four observations after install.
 
+T10 [S12] inline: commit e87cd95. `render()` evaluates `showQueue` before the tab and the panel keeps offering "Abrir en galería" on the drained queue screen, so the action set the gallery tab and re-rendered the queue. It now leaves the queue first.
+
+T11 [S13] inline: commit e87cd95. The clear required the last queued work to be the job that wrote the final status, but a queue finishes in its own order. The rule lives in `PreviewClear` and compares the work on screen and the link box against the last queued work, pinned by `PreviewClearTest`.
+
 ## Log
 
 L1. User request verbatim: "Bien. Ahora quiero que desarrolles la funcionalidad de descargas simultaneas, una vista de cola de descargas en la que se enlisten las descargas en curso (cada item debe tener miniatura imagen, titulo de la obra y avance), solo permitir un maximo de 5 descargas en la cola. El boton que me lleve a la vista de la cola (boton con icono representativo, no texto), debe estar al lado del texto "Pixiv acivo", no en el menu en la parte inferior. Si tienes dudas, preguntame."
@@ -65,3 +73,8 @@ L7. Root cause found for the panel action. `DownloadStatus` is a single-slot rec
 L8. Progress was genuinely per page, not per work: `save()` notifies `(i + 1) / files.length()` when a page finishes while `download()` notifies the current file's byte percentage as `percent / 100`, so the row oscillated between two scales. Now every notification is mapped to the whole work with `DownloadQueueBook.overall(pageIndex, pageCount, fraction)`, and the queue row shows type plus page/file count. Type is decided at enqueue time: novela, ugoira, manga (2+ original pages) or ilustración.
 
 L9. Verification of T6–T8 by a fresh independent verifier (scratch copies under `/tmp/opencode`, no workspace writes). Result: no blockers, six advisories. Fixed here in commit `25542e7`: the ugoira row jumped 100 % → 0 % at the conversion boundary once progress covered the whole work (archive now fills the first half and conversion the second), and the in-place queue refresh compared only row counts, so a finished job replaced by a new one in the same tick left a stale row (now compares ids). The empty-gallery toast keeps the shipped message and only the "never downloaded" case uses the new one. Accepted as-is: the header ghost button keeps its pre-existing 36 dp touch target (enlarging it would move the "Pixiv activo" badge, and the ask was the icon and style), `overall` overflows only at implausible page counts, and two simultaneous completions can resolve to either freshly finished work. Verified: 62 JVM tests (57 + the verifier's 5 probes, committed as `DownloadProgressProbeTest`), 24 shared tests, `assembleDebug` and `assembleDebugAndroidTest` green. Not run: any instrumented or on-device check, which stays pending in T4 and T9.
+
+L10. User report verbatim: "cuando hago una sola descarga si funciona, pero cuando hay una cola NO. Ademas cuando hay una cola, al terminar las descargas, el input URL y la vista previa no se limpian."
+
+L11. Two independent queue-only causes. (1) The panel action set `tab = 2` but left `showQueue` true, and `render()` evaluates `showQueue` before the tab, so the tap re-rendered the queue screen and never reached the gallery; with a single download the queue screen is never open, which is why it worked. The action now clears `showQueue` first. (2) The clear compared `last_queued_work_id` with `completed.workId`, so a queue whose last finisher was not the last queued work never cleared the link box or the preview; the rule now compares the work on screen and the link box against the last queued work. A fabricated completed status in the owner profile showed the wiring was already correct (the action navigates to the gallery detail when the queue screen is closed), which narrowed both faults to the queue state. Verified: `PreviewClearTest` plus the full suite (65 JVM, 24 shared), `assembleDebug` and `assembleDebugAndroidTest` green with `--rerun-tasks`. Not run: instrumented or on-device checks, still pending in T4 and T9.
+
