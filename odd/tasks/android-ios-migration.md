@@ -26,6 +26,7 @@ T3 [S2,S4,S7] dropped by S13; no iOS app implementation.
 T4 [S2,S4-S7] dropped by S13; no iOS parity/release verification.
 T5 [S7-S14] inline: done per user's confirmation of app functionality; commits 46afd0a, b98b746, 6df2f2b, a0261e9, f1faad4, 8b6c6eb, c5d3874, 3e820f0. GalleryDocumentsTest passed 4/4 on Android API34 with a synthetic provider; specific real SAF multi-page folder navigation was not confirmed.
 T6 [S13,S15] inline: implementation verified by host/unit/APK builds and independent Java ABI review; commit a3c1f5b. Targeted UiTest compiled but not run on Android; runtime verification remains pending fresh installation consent.
+T7 [S13,S15] inline: in_progress; commit pending. Migrate GalleryImages.java to Kotlin preserving gallery thumbnail executor, LruCache, SAF/bitmap sampling, video frames and UI-thread updates.
 
 ## Log
 L1. Original request verbatim: "Bien. Elabora un plan para migrar la app a Kotlin para hacerla multiplataforma."
