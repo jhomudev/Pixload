@@ -580,6 +580,9 @@ open class MainActivity : Activity() {
             return
         }
         DownloadStatus.dismiss(this)
+        // The queue screen renders instead of the gallery while it is open, and the panel that owns
+        // this action keeps offering it after the queue drains, so opening a work leaves the queue.
+        showQueue = false
         tab = 2
         loadGalleryEntry(entry, 0)
     }
@@ -598,21 +601,23 @@ open class MainActivity : Activity() {
         return GalleryStore.list(this).firstOrNull()
     }
 
+    /**
+     * Clears the preview and the link box once the work they show has finished. The queue finishes
+     * in its own order and only the last status is kept, so the decision uses the work on screen
+     * against the last queued work instead of whichever job wrote the status last.
+     */
     private fun clearCompletedWork(completed: DownloadStatus): Boolean {
         if (completed.state != "complete" || completed.documentUri.isNullOrEmpty()) return false
         val prefs = getPreferences(MODE_PRIVATE)
         if (completed.documentUri == prefs.getString("last_cleared_download_uri", "")) return false
-        val queuedId = prefs.getString("last_queued_work_id", "") ?: ""
-        val queuedLink = prefs.getString("last_queued_link", "") ?: ""
-        val matchingJob = queuedId.isNotEmpty() && queuedId == completed.workId
-        val clearedPreview = matchingJob && work != null && queuedId == work?.id
+        val clearedPreview = PreviewClear.preview(prefs.getString("last_queued_work_id", ""), work?.id)
         if (clearedPreview) {
             work = null
             selectedPages = null
             pageChecks.clear()
         }
         val currentLink = if (tab == 0 && link != null) link!!.text.toString() else linkValue
-        val clearedLink = matchingJob && queuedLink.isNotEmpty() && queuedLink == currentLink
+        val clearedLink = PreviewClear.link(prefs.getString("last_queued_link", ""), currentLink)
         val save = prefs.edit().putString("last_cleared_download_uri", completed.documentUri)
         if (clearedLink) {
             linkValue = ""
