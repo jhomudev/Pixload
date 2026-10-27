@@ -39,11 +39,13 @@ public class GalleryImagesApiTest {
     }
 
     @Test
-    public void keepsExecutorAndByteSizedCacheFields() throws Exception {
+    public void keepsExecutorAndCacheFieldTypes() throws Exception {
         Class<?> type = Class.forName("com.pixload.app.GalleryImages");
         Field executor = type.getDeclaredField("executor");
         assertTrue(ExecutorService.class.isAssignableFrom(executor.getType()));
         Field cache = type.getDeclaredField("cache");
         assertTrue(LruCache.class.isAssignableFrom(cache.getType()));
+        // Pool size, cache capacity and byte-sized sizeOf need a live Activity instance; they are
+        // pinned by the migration source and bytecode review, not by this JVM-only guard.
     }
 }
