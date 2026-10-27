@@ -28,6 +28,7 @@ internal object Ui {
     @JvmField val CYAN = Color.rgb(123, 208, 255)
     @JvmField val GREEN = Color.rgb(78, 222, 163)
     @JvmField val DANGER = Color.rgb(255, 112, 122)
+    @JvmField val WARNING = Color.rgb(255, 199, 89)
     @JvmField val WHITE = Color.rgb(223, 226, 239)
     @JvmField val MUTED = Color.rgb(174, 185, 199)
     @JvmField val BORDER = Color.rgb(64, 72, 81)

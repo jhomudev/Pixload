@@ -80,6 +80,8 @@ open class MainActivity : Activity() {
     private var work: PixivClient.Work? = null
     private var linkValue = ""
     private var message = ""
+    private var previewNotice: String? = null
+    private var previewNoticeWarning = true
     private var tab = 0
     private var loading = false
     private var loggedIn = false
@@ -138,7 +140,6 @@ open class MainActivity : Activity() {
             val retained = lastNonConfigurationInstance
             if (retained is PixivClient.Work) work = retained
         }
-        message = getString(R.string.home_prompt)
         render()
         galleryEntry?.let { loadGalleryEntry(it, galleryIndex) }
         consume(intent)
@@ -834,8 +835,6 @@ open class MainActivity : Activity() {
     }
 
     private fun home() {
-        content.addView(Ui.text(this, "SOLO PIXIV", 12, Ui.CYAN, true))
-        Ui.gap(content, this, 9)
         content.addView(Ui.text(this, "Tus obras favoritas,\na tu manera.", 29, Ui.WHITE, true))
         Ui.gap(content, this, 8)
         content.addView(Ui.text(this, "Guarda ilustraciones, manga, novelas y ugoira de Pixiv.", 15, Ui.MUTED, false))
@@ -903,8 +902,10 @@ open class MainActivity : Activity() {
         open.isEnabled = !loading
         hub.addView(open)
         Ui.gap(hub, this, 12)
-        status = Ui.text(this, message, 13, Ui.MUTED, false)
-        hub.addView(status)
+        val notice = Ui.text(this, "", 13, Ui.WARNING, false)
+        status = notice
+        hub.addView(notice)
+        applyPreviewNotice()
         content.addView(hub)
         Ui.gap(content, this, 22)
         content.addView(Ui.text(this, "Hecho para tus obras", 19, Ui.WHITE, true))
@@ -933,17 +934,39 @@ open class MainActivity : Activity() {
         content.addView(card)
     }
 
+    /**
+     * Keeps the feedback line under the preview button empty unless the preview flow produced a
+     * warning or an error, and colors it by that type.
+     */
+    private fun setPreviewNotice(text: String?, warning: Boolean) {
+        previewNotice = text
+        previewNoticeWarning = warning
+        applyPreviewNotice()
+    }
+
+    private fun applyPreviewNotice() {
+        val view = status ?: return
+        val note = previewNotice
+        if (note.isNullOrEmpty()) {
+            view.visibility = View.GONE
+            return
+        }
+        view.visibility = View.VISIBLE
+        view.setTextColor(if (previewNoticeWarning) Ui.WARNING else Ui.DANGER)
+        view.text = note
+    }
+
     private fun paste() {
         val clipboard = getSystemService(ClipboardManager::class.java)
         val data: ClipData? = clipboard?.primaryClip
         if (data == null || data.itemCount == 0) {
-            status?.text = AppLanguage.label(this, "El portapapeles está vacío.")
+            setPreviewNotice(AppLanguage.label(this, "El portapapeles está vacío."), true)
             return
         }
         val value = data.getItemAt(0).coerceToText(this)
         val url = PixivLink.extract(value?.toString())
         if (url == null) {
-            status?.text = AppLanguage.label(this, "El portapapeles no contiene un enlace de Pixiv.")
+            setPreviewNotice(AppLanguage.label(this, "El portapapeles no contiene un enlace de Pixiv."), true)
             return
         }
         link?.setText(url)
@@ -959,15 +982,14 @@ open class MainActivity : Activity() {
             link?.setText(extracted)
         }
         if (linkValue.isEmpty()) {
-            message = AppLanguage.label(this, "Introduce un enlace de obra de Pixiv.")!!
-            status?.text = message
+            setPreviewNotice(AppLanguage.label(this, "Introduce un enlace de obra de Pixiv."), true)
             return
         }
         loading = true
         work = null
         mp4 = defaultMp4
         selectedPages = null
-        message = AppLanguage.label(this, "Consultando Pixiv…")!!
+        setPreviewNotice(null, true)
         getPreferences(MODE_PRIVATE).edit().putString("last_link", linkValue).apply()
         val keyboard = getSystemService(InputMethodManager::class.java)
         if (keyboard != null && link != null) keyboard.hideSoftInputFromWindow(link!!.windowToken, 0)
@@ -980,7 +1002,6 @@ open class MainActivity : Activity() {
                     if (isFinishing || isDestroyed) return@runOnUiThread
                     loading = false
                     work = found
-                    message = AppLanguage.label(this, "Obra lista para previsualizar.")!!
                     tab = 1
                     render()
                 }
@@ -988,7 +1009,7 @@ open class MainActivity : Activity() {
                 runOnUiThread {
                     if (isFinishing || isDestroyed) return@runOnUiThread
                     loading = false
-                    message = AppLanguage.label(this, "No se pudo abrir la obra: ") + AppLanguage.error(this, error.message)
+                    setPreviewNotice(AppLanguage.label(this, "No se pudo abrir la obra: ") + AppLanguage.error(this, error.message), false)
                     tab = 0
                     render()
                 }

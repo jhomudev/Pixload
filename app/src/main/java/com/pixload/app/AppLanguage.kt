@@ -88,7 +88,6 @@ internal object AppLanguage {
             "Descarga eliminada" -> "Download deleted"
             "Compartir descarga" -> "Share download"
             "No hay ninguna aplicación disponible para compartir estos archivos." -> "No app is available to share these files."
-            "SOLO PIXIV" -> "PIXIV ONLY"
             "Tus obras favoritas,\na tu manera." -> "Your favorite works,\nyour way."
             "Guarda ilustraciones, manga, novelas y ugoira de Pixiv." -> "Save illustrations, manga, novels and ugoira from Pixiv."
             "Ilustraciones" -> "Illustrations"

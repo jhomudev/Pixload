@@ -1,6 +1,5 @@
 <resources>
     <string name="app_name">Pixload</string>
-    <string name="home_prompt">Paste a link to look up a Pixiv work.</string>
     <string name="nav_download">Download</string>
     <string name="nav_preview">Preview</string>
     <string name="nav_gallery">Gallery</string>

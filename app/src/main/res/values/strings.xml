@@ -1,6 +1,5 @@
 <resources>
     <string name="app_name">Pixload</string>
-    <string name="home_prompt">Pega un enlace para consultar una obra de Pixiv.</string>
     <string name="nav_download">Descargar</string>
     <string name="nav_preview">Vista previa</string>
     <string name="nav_gallery">Galería</string>
