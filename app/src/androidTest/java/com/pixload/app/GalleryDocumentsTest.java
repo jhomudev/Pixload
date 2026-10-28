@@ -41,7 +41,7 @@ public class GalleryDocumentsTest {
 
     private static final class Provider extends ContentProvider {
         Cursor cursor;
-        SecurityException denied;
+        RuntimeException denied;
         Uri queried;
         String[] projection;
 
@@ -128,5 +128,60 @@ public class GalleryDocumentsTest {
         ContentResolver resolver = ContentResolver.wrap(provider);
         error(resolver, entry(TREE, "image/png", false), "Se ha perdido el acceso a este archivo.", denied);
         error(resolver, entry(TREE, "", true), "Se ha perdido el acceso a esta carpeta.", denied);
+    }
+
+    @Test public void availabilityTracksExternalDeletionForFilesAndFolders() {
+        for (boolean folder : new boolean[]{false, true}) {
+            Provider provider = new Provider();
+            ContentResolver resolver = ContentResolver.wrap(provider);
+            GalleryStore.Entry saved = entry(TREE, "image/png", folder);
+            TrackingCursor present = new TrackingCursor(new String[]{DocumentsContract.Document.COLUMN_DOCUMENT_ID});
+            present.addRow(new Object[]{"root/folder"});
+            provider.cursor = present;
+            assertTrue(GalleryDocuments.isAvailable(resolver, saved));
+            assertEquals(Uri.parse(TREE), provider.queried);
+            assertArrayEquals(new String[]{DocumentsContract.Document.COLUMN_DOCUMENT_ID}, provider.projection);
+            assertTrue(present.closed);
+
+            TrackingCursor missing = new TrackingCursor(new String[]{DocumentsContract.Document.COLUMN_DOCUMENT_ID});
+            provider.cursor = missing;
+            assertTrue(!GalleryDocuments.isAvailable(resolver, saved));
+            assertTrue(missing.closed);
+            provider.cursor = null;
+            assertTrue(!GalleryDocuments.isAvailable(resolver, saved));
+
+            TrackingCursor restored = new TrackingCursor(new String[]{DocumentsContract.Document.COLUMN_DOCUMENT_ID});
+            restored.addRow(new Object[]{"root/folder"});
+            provider.cursor = restored;
+            assertTrue(GalleryDocuments.isAvailable(resolver, saved));
+            assertTrue(restored.closed);
+        }
+    }
+
+    @Test public void availabilityDoesNotHideEntriesOnPermissionOrProviderErrors() {
+        Provider provider = new Provider();
+        ContentResolver resolver = ContentResolver.wrap(provider);
+        for (boolean folder : new boolean[]{false, true}) {
+            provider.denied = new SecurityException("denied");
+            assertTrue(GalleryDocuments.isAvailable(resolver, entry(TREE, "", folder)));
+            provider.denied = new IllegalStateException("provider unavailable");
+            assertTrue(GalleryDocuments.isAvailable(resolver, entry(TREE, "", folder)));
+        }
+    }
+
+    @Test public void deletedTreeDescendantsRejectedByAndroidAreUnavailable() {
+        Provider provider = new Provider();
+        ContentResolver resolver = ContentResolver.wrap(provider);
+        // ExternalStorageProvider tree validation discards the original missing-file cause.
+        provider.denied = new IllegalArgumentException("Failed to determine if document is child of tree");
+        for (boolean folder : new boolean[]{false, true}) {
+            assertTrue(!GalleryDocuments.isAvailable(resolver, entry(TREE, "", folder)));
+        }
+        provider.denied = null;
+        TrackingCursor restored = new TrackingCursor(new String[]{DocumentsContract.Document.COLUMN_DOCUMENT_ID});
+        restored.addRow(new Object[]{"root/folder"});
+        provider.cursor = restored;
+        assertTrue(GalleryDocuments.isAvailable(resolver, entry(TREE, "", false)));
+        assertTrue(restored.closed);
     }
 }

@@ -1,7 +1,6 @@
 package com.pixload.app
 
 import android.app.Activity
-import android.content.res.ColorStateList
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Rect
@@ -10,7 +9,6 @@ import android.view.Gravity
 import android.view.View
 import android.widget.FrameLayout
 import android.widget.ImageView
-import android.widget.ProgressBar
 import android.widget.TextView
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.ExecutorService
@@ -34,20 +32,19 @@ internal class PreviewImages(private val activity: Activity) {
         image.contentDescription = AppLanguage.label(activity, "Miniatura de la obra de Pixiv")
         image.scaleType = ImageView.ScaleType.CENTER_CROP
         frame.addView(image, FrameLayout.LayoutParams(-1, -1))
-        val spinner = ProgressBar(activity)
-        spinner.indeterminateTintList = ColorStateList.valueOf(Ui.CYAN)
-        frame.addView(spinner, FrameLayout.LayoutParams(Ui.dp(activity, 36f), Ui.dp(activity, 36f), Gravity.CENTER))
+        val skeleton = LoadingSkeleton(activity)
+        frame.addView(skeleton, FrameLayout.LayoutParams(-1, -1))
         if (url.isNullOrEmpty()) {
-            spinner.visibility = View.GONE
+            frame.removeView(skeleton)
             showError(frame)
         } else {
             val cached = cache.get(url)
             if (cached != null) {
                 image.setImageBitmap(cached)
-                spinner.visibility = View.GONE
+                frame.removeView(skeleton)
                 if (persist) requests.execute { persistThumbnail(url, cached) }
             } else {
-                visibleRequests.add(Thumbnail(frame, image, spinner, url, Ui.dp(activity, heightDp.toFloat()), persist))
+                visibleRequests.add(Thumbnail(frame, image, skeleton, url, Ui.dp(activity, heightDp.toFloat()), persist))
             }
         }
         return frame
@@ -77,12 +74,12 @@ internal class PreviewImages(private val activity: Activity) {
             activity.runOnUiThread {
                 if (!item.frame.isAttachedToWindow) return@runOnUiThread
                 item.image.setImageBitmap(bitmap)
-                item.spinner.visibility = View.GONE
+                item.frame.removeView(item.skeleton)
             }
         } catch (ignored: Exception) {
             activity.runOnUiThread {
                 if (!item.frame.isAttachedToWindow) return@runOnUiThread
-                item.spinner.visibility = View.GONE
+                item.frame.removeView(item.skeleton)
                 showError(item.frame)
             }
         }
@@ -158,7 +155,7 @@ internal class PreviewImages(private val activity: Activity) {
     private class Thumbnail(
         val frame: FrameLayout,
         val image: ImageView,
-        val spinner: ProgressBar,
+        val skeleton: LoadingSkeleton,
         val url: String,
         val targetPixels: Int,
         val persist: Boolean

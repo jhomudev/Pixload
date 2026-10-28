@@ -242,17 +242,6 @@ open class MainActivity : Activity() {
         refreshProgress()
         page.post { images.loadVisible() }
         page.post { galleryImages.loadVisible() }
-        if (tab == 2 && galleryEntry == null) {
-            galleryListRendered = true
-            galleryScrollPending = true
-            page.post {
-                if (scroll === page && tab == 2 && galleryEntry == null) {
-                    page.scrollTo(0, galleryScrollY)
-                    galleryScrollPending = false
-                    galleryImages.loadVisible()
-                }
-            }
-        }
     }
 
     private fun header() {
@@ -707,12 +696,38 @@ open class MainActivity : Activity() {
         Ui.gap(content, this, 6)
         content.addView(Ui.text(this, "Tus obras descargadas de Pixiv, reunidas en un solo lugar.", 14, Ui.MUTED, false))
         Ui.gap(content, this, 20)
-        val entries: List<GalleryStore.Entry>
-        try { entries = GalleryStore.list(this) }
-        catch (error: IllegalStateException) {
-            content.addView(Ui.text(this, AppLanguage.error(this, error.message)!!, 14, Ui.MUTED, false))
-            return
+        val container = content
+        val skeleton = Skeletons.gallery(this)
+        container.addView(skeleton)
+        galleryIO.execute {
+            try {
+                val entries = GalleryStore.list(this).filter { GalleryDocuments.isAvailable(contentResolver, it) }
+                runOnUiThread {
+                    if (isFinishing || isDestroyed || content !== container || tab != 2 || galleryEntry != null) return@runOnUiThread
+                    container.removeView(skeleton)
+                    galleryEntries(entries)
+                    galleryListRendered = true
+                    galleryScrollPending = true
+                    scroll?.post {
+                        if (content === container) {
+                            scroll?.scrollTo(0, galleryScrollY)
+                            galleryScrollPending = false
+                            galleryImages.loadVisible()
+                        }
+                    }
+                }
+            } catch (error: IllegalStateException) {
+                runOnUiThread {
+                    if (content === container && !isFinishing && !isDestroyed) {
+                        container.removeView(skeleton)
+                        container.addView(Ui.text(this, AppLanguage.error(this, error.message)!!, 14, Ui.MUTED, false))
+                    }
+                }
+            }
         }
+    }
+
+    private fun galleryEntries(entries: List<GalleryStore.Entry>) {
         if (entries.isEmpty()) {
             val empty = Ui.card(this, 18)
             empty.addView(Ui.label(this, "Aún no hay descargas", R.drawable.tabler_layout_grid, 18, Ui.CYAN))
@@ -751,16 +766,23 @@ open class MainActivity : Activity() {
                 card.addView(Ui.text(this, if (entry.date > 0) DateFormat.getDateTimeInstance(DateFormat.SHORT,
                     DateFormat.SHORT, Locale.forLanguageTag(AppLanguage.current(this))).format(Date(entry.date)) else "Fecha no registrada", 11, Ui.MUTED, false))
                 val count = Ui.text(this, if (entry.folder) {
-                    if (entry.count >= 0) entry.count.toString() + AppLanguage.label(this, " elementos") else "Calculando elementos…"
+                    if (entry.count >= 0) entry.count.toString() + AppLanguage.label(this, " elementos") else ""
                 } else AppLanguage.label(this, "1 archivo")!!, 11, Ui.CYAN, true)
                 card.addView(count)
                 if (entry.folder && entry.count < 0) {
+                    count.visibility = View.GONE
+                    val countSkeleton = Skeletons.block(this, 12, 64)
+                    card.addView(countSkeleton)
                     galleryIO.execute {
                         try {
                             val files = GalleryDocuments.list(contentResolver, entry)
                             GalleryStore.updateMetadata(this, entry, files.size, if (files.isEmpty()) "" else files[0].uri.toString())
                             runOnUiThread { if (tab == 2 && galleryEntry == null && count.isAttachedToWindow) render() }
-                        } catch (_: Exception) { runOnUiThread { count.text = AppLanguage.label(this, "Carpeta no disponible") } }
+                        } catch (_: Exception) { runOnUiThread {
+                            card.removeView(countSkeleton)
+                            count.visibility = View.VISIBLE
+                            count.text = AppLanguage.label(this, "Carpeta no disponible")
+                        } }
                     }
                 }
                 Ui.gap(card, this, 7)
@@ -835,8 +857,12 @@ open class MainActivity : Activity() {
         toolbar.addView(close, LinearLayout.LayoutParams(Ui.dp(this, 48f), Ui.dp(this, 48f)))
         root.addView(toolbar)
         fullscreenMedia = null
-        if (galleryLoading || items == null || items.isEmpty() || galleryError != null) {
-            val state = Ui.text(this, galleryError ?: if (galleryLoading) "Cargando archivos…" else "Esta carpeta está vacía.", 15, Ui.MUTED, false)
+        if (galleryLoading) {
+            root.addView(LoadingSkeleton(this), LinearLayout.LayoutParams(-1, 0, 1f))
+            return
+        }
+        if (items == null || items.isEmpty() || galleryError != null) {
+            val state = Ui.text(this, galleryError ?: "Esta carpeta está vacía.", 15, Ui.MUTED, false)
             state.gravity = Gravity.CENTER
             root.addView(state, LinearLayout.LayoutParams(-1, 0, 1f))
             return
@@ -911,7 +937,7 @@ open class MainActivity : Activity() {
         Ui.gap(content, this, 16)
         val items = galleryItems
         if (galleryLoading) {
-            content.addView(Ui.text(this, "Cargando archivos…", 14, Ui.CYAN, false))
+            content.addView(Skeletons.detail(this))
         } else if (galleryError != null) {
             content.addView(Ui.text(this, galleryError!!, 14, Ui.MUTED, false))
         } else if (items == null || items.isEmpty()) {
@@ -1244,6 +1270,10 @@ open class MainActivity : Activity() {
     private fun preview() {
         pageChecks.clear()
         val work = work
+        if (loading) {
+            content.addView(Skeletons.work(this))
+            return
+        }
         if (work == null) {
             content.addView(Ui.text(this, "Vista previa", 26, Ui.WHITE, true))
             Ui.gap(content, this, 18)
@@ -1716,6 +1746,18 @@ open class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         importLastDownload()
+        if (tab == 2) {
+            val entry = galleryEntry
+            if (entry == null) render()
+            else galleryIO.execute {
+                val available = GalleryDocuments.isAvailable(contentResolver, entry)
+                runOnUiThread {
+                    if (!available && !isFinishing && !isDestroyed && tab == 2 && galleryEntry === entry) {
+                        returnToGallery()
+                    }
+                }
+            }
+        }
         progressHandler.removeCallbacks(progressUpdate)
         progressHandler.post(progressUpdate)
         if (sessionBadge != null) refreshSession(false)

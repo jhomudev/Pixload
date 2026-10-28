@@ -3,7 +3,6 @@
 package com.pixload.app
 
 import android.app.Activity
-import android.content.res.ColorStateList
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.ImageDecoder
@@ -19,7 +18,6 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.MediaController
-import android.widget.ProgressBar
 import android.widget.VideoView
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
@@ -50,16 +48,15 @@ internal object GalleryViewer {
             val controller = MediaController(activity)
             controller.setAnchorView(video)
             video.setMediaController(controller)
-            val spinner = ProgressBar(activity)
-            spinner.indeterminateTintList = ColorStateList.valueOf(Ui.CYAN)
-            frame.addView(spinner, FrameLayout.LayoutParams(Ui.dp(activity, 40f), Ui.dp(activity, 40f), Gravity.CENTER))
+            val skeleton = LoadingSkeleton(activity)
+            frame.addView(skeleton, FrameLayout.LayoutParams(-1, -1))
             video.setOnPreparedListener { player ->
                 player.isLooping = true // Pixiv ugoira MP4s can last under a second.
-                spinner.visibility = View.GONE
+                frame.removeView(skeleton)
             }
             video.setOnErrorListener { _, what, extra ->
                 Log.w("PixloadPlayer", "Video playback failed: $what/$extra")
-                spinner.visibility = View.GONE
+                frame.removeView(skeleton)
                 container.addView(Ui.text(activity, "No se pudo reproducir el vídeo.", 14, Ui.MUTED, false))
                 true
             }
@@ -77,11 +74,16 @@ internal object GalleryViewer {
             return video
         }
         if (mime.startsWith("text/") || name.endsWith(".txt")) {
-            val text = Ui.text(activity, "Abriendo texto…", 15, Ui.WHITE, false)
+            val frame = FrameLayout(activity)
+            container.addView(frame)
+            val text = Ui.text(activity, "", 15, Ui.WHITE, false)
+            text.visibility = View.GONE
             text.setTextIsSelectable(true)
             text.setPadding(Ui.dp(activity, 12f), Ui.dp(activity, 12f), Ui.dp(activity, 12f), Ui.dp(activity, 12f))
             text.background = Ui.background(activity, Ui.PANEL, 12)
-            container.addView(text)
+            frame.addView(text, FrameLayout.LayoutParams(-1, -2))
+            val skeleton = Skeletons.text(activity)
+            frame.addView(skeleton, FrameLayout.LayoutParams(-1, -2))
             executor.execute {
                 val value = try {
                     activity.contentResolver.openInputStream(item.uri).use { input ->
@@ -107,7 +109,13 @@ internal object GalleryViewer {
                 } catch (error: Exception) {
                     AppLanguage.label(activity, "No se pudo leer el texto: ") + AppLanguage.error(activity, error.message)
                 }
-                activity.runOnUiThread { if (text.isAttachedToWindow) text.text = value }
+                activity.runOnUiThread {
+                    if (frame.isAttachedToWindow) {
+                        frame.removeView(skeleton)
+                        text.text = value
+                        text.visibility = View.VISIBLE
+                    }
+                }
             }
             return null
         }
@@ -119,9 +127,8 @@ internal object GalleryViewer {
             val image = ImageView(activity)
             image.scaleType = ImageView.ScaleType.FIT_CENTER
             frame.addView(image, FrameLayout.LayoutParams(-1, -1))
-            val spinner = ProgressBar(activity)
-            spinner.indeterminateTintList = ColorStateList.valueOf(Ui.CYAN)
-            frame.addView(spinner, FrameLayout.LayoutParams(Ui.dp(activity, 40f), Ui.dp(activity, 40f), Gravity.CENTER))
+            val skeleton = LoadingSkeleton(activity)
+            frame.addView(skeleton, FrameLayout.LayoutParams(-1, -1))
             executor.execute {
                 try {
                     if (name.endsWith(".gif") && Build.VERSION.SDK_INT < 28) {
@@ -131,7 +138,7 @@ internal object GalleryViewer {
                             if (!image.isAttachedToWindow) return@runOnUiThread
                             frame.removeView(image)
                             frame.addView(MovieView(activity, movie), 0, FrameLayout.LayoutParams(-1, -1))
-                            frame.removeView(spinner)
+                            frame.removeView(skeleton)
                         }
                     } else if (Build.VERSION.SDK_INT >= 28) {
                         val drawable = ImageDecoder.decodeDrawable(
@@ -144,7 +151,7 @@ internal object GalleryViewer {
                             if (!image.isAttachedToWindow) return@runOnUiThread
                             image.setImageDrawable(drawable)
                             if (drawable is AnimatedImageDrawable) drawable.start()
-                            frame.removeView(spinner)
+                            frame.removeView(skeleton)
                         }
                     } else {
                         val bounds = BitmapFactory.Options()
@@ -163,14 +170,14 @@ internal object GalleryViewer {
                         activity.runOnUiThread {
                             if (!image.isAttachedToWindow) return@runOnUiThread
                             image.setImageBitmap(bitmap)
-                            frame.removeView(spinner)
+                            frame.removeView(skeleton)
                         }
                     }
                 } catch (error: Throwable) {
                     if (error !is Exception && error !is OutOfMemoryError) throw error
                     activity.runOnUiThread {
                         if (image.isAttachedToWindow) {
-                            frame.removeView(spinner)
+                            frame.removeView(skeleton)
                             val failure = Ui.text(activity, "No se pudo mostrar este archivo.", 14, Ui.MUTED, false)
                             failure.gravity = Gravity.CENTER
                             frame.addView(failure, FrameLayout.LayoutParams(-1, -1))

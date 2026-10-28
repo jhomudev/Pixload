@@ -1,7 +1,6 @@
 package com.pixload.app
 
 import android.app.Activity
-import android.content.res.ColorStateList
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Rect
@@ -13,7 +12,6 @@ import android.view.Gravity
 import android.view.View
 import android.widget.FrameLayout
 import android.widget.ImageView
-import android.widget.ProgressBar
 import android.widget.TextView
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -43,14 +41,13 @@ internal class GalleryImages(private val activity: Activity) {
         image.scaleType = ImageView.ScaleType.CENTER_CROP
         image.contentDescription = AppLanguage.label(activity, "Miniatura de archivo guardado")
         frame.addView(image, FrameLayout.LayoutParams(-1, -1))
-        val spinner = ProgressBar(activity)
-        spinner.indeterminateTintList = ColorStateList.valueOf(Ui.CYAN)
-        frame.addView(spinner, FrameLayout.LayoutParams(Ui.dp(activity, 32f), Ui.dp(activity, 32f), Gravity.CENTER))
+        val skeleton = LoadingSkeleton(activity)
+        frame.addView(skeleton, FrameLayout.LayoutParams(-1, -1))
         val cached = cache.get(uri)
         if (cached != null) {
             image.setImageBitmap(cached)
-            spinner.visibility = View.GONE
-        } else pending.add(Request(frame, image, spinner, uri, mime, Ui.dp(activity, sizeDp.toFloat())))
+            frame.removeView(skeleton)
+        } else pending.add(Request(frame, image, skeleton, uri, mime, Ui.dp(activity, sizeDp.toFloat())))
         return frame
     }
 
@@ -101,7 +98,7 @@ internal class GalleryImages(private val activity: Activity) {
         val result = bitmap
         activity.runOnUiThread {
             if (!request.frame.isAttachedToWindow) return@runOnUiThread
-            request.spinner.visibility = View.GONE
+            request.frame.removeView(request.skeleton)
             if (result != null) request.image.setImageBitmap(result)
             else {
                 val missing = Ui.text(activity, "Vista previa\nno disponible", 12, Ui.MUTED, false)
@@ -118,7 +115,7 @@ internal class GalleryImages(private val activity: Activity) {
     private class Request(
         val frame: FrameLayout,
         val image: ImageView,
-        val spinner: ProgressBar,
+        val skeleton: LoadingSkeleton,
         val uri: String,
         val mime: String?,
         val size: Int

@@ -34,7 +34,7 @@ public class PreviewImagesStructureTest {
         assertTrue(List.class.isAssignableFrom((Class<?>) list.getRawType()));
         Class<?> thumbnail = (Class<?>) list.getActualTypeArguments()[0];
         assertTrue(Modifier.isFinal(thumbnail.getModifiers()));
-        for (String name : new String[] {"frame", "image", "spinner", "url", "targetPixels", "started"}) {
+        for (String name : new String[] {"frame", "image", "skeleton", "url", "targetPixels", "started"}) {
             thumbnail.getDeclaredField(name);
         }
     }

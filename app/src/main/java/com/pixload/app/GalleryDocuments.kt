@@ -6,6 +6,23 @@ import android.provider.DocumentsContract
 import java.io.IOException
 
 internal object GalleryDocuments {
+    @JvmStatic
+    fun isAvailable(resolver: ContentResolver, entry: GalleryStore.Entry): Boolean {
+        return try {
+            // Query the document itself: an empty folder still exists.
+            resolver.query(Uri.parse(entry.uri), arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID),
+                null, null, null).use { cursor -> cursor != null && cursor.moveToFirst() }
+        } catch (_: java.io.FileNotFoundException) {
+            false
+        } catch (_: IllegalArgumentException) {
+            // Android's SAF tree validation can reject deleted descendants without a typed cause.
+            false
+        } catch (_: Exception) {
+            // A permission or provider failure is not proof of deletion.
+            true
+        }
+    }
+
     internal class Item(
         @JvmField val uri: Uri,
         @JvmField val name: String?,
