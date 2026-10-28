@@ -46,7 +46,7 @@ internal object GifConversion {
                     for (y in 0 until bitmap.height step 4) {
                         bitmap.getPixels(row, 0, bitmap.width, 0, y, bitmap.width, 1)
                         for (x in 0 until bitmap.width step step) {
-                            val rgb = row[x] and 0x00f8f8f8
+                            val rgb = row[x] and if (preset == GifPreset.QUALITY) 0x00ffffff else 0x00f8f8f8
                             samples.add(Color.fromRgbInt(rgb))
                         }
                     }
@@ -58,7 +58,7 @@ internal object GifConversion {
                 else -> LinkedHashSet(MedianCutQuantizer.INSTANCE.quantize(samples, 256))
             }
             val quantizer = FixedQuantizer(palette)
-            val ditherer = PaletteLookupDitherer(palette, preset.diffuse)
+            val ditherer = PaletteLookupDitherer(palette, preset.diffuse, preset == GifPreset.QUALITY)
             val first = decode(zip, frames.getJSONObject(0).getString("file"), preset.maxWidth)
             val width = first.width
             val height = first.height
@@ -146,12 +146,17 @@ private class FixedQuantizer(private val palette: MutableSet<Color>) : ColorQuan
     override fun quantize(originalColors: Multiset<Color>, maxColorCount: Int): MutableSet<Color> = palette
 }
 
-/** 32k-cell RGB lookup, constructed once and shared by every encoded frame. */
-private class PaletteLookupDitherer(palette: Set<Color>, private val diffuse: Boolean) : Ditherer {
+/** Shared RGB lookup; quality refines each cell against its possible nearest colors. */
+internal class PaletteLookupDitherer(palette: Set<Color>, private val diffuse: Boolean,
+                                    private val precise: Boolean) : Ditherer {
     private val lookup = Array(32768) { Color.BLACK }
+    private val entries = palette.toTypedArray()
+    private val channels = Array(entries.size) { i ->
+        IntArray(3) { c -> (entries[i].getComponent(c) * 255).toInt() }
+    }
+    private val candidates = if (precise) arrayOfNulls<IntArray>(32768) else null
 
     init {
-        val entries = palette.toTypedArray()
         for (i in lookup.indices) {
             val r = ((i shr 10) and 31) * 8 + 4
             val g = ((i shr 5) and 31) * 8 + 4
@@ -167,6 +172,40 @@ private class PaletteLookupDitherer(palette: Set<Color>, private val diffuse: Bo
         }
     }
 
+    private fun nearest(red: Int, green: Int, blue: Int, cell: Int): Color {
+        val cache = candidates ?: return lookup[cell]
+        val possible = cache[cell] ?: run {
+            val low = intArrayOf(red and 248, green and 248, blue and 248)
+            val centerColor = lookup[cell]
+            var upper = 0
+            for (c in 0..2) {
+                val value = (centerColor.getComponent(c) * 255).toInt()
+                val distance = maxOf(kotlin.math.abs(value - low[c]), kotlin.math.abs(value - low[c] - 7))
+                upper += distance * distance
+            }
+            // Exclude only colors that cannot win anywhere inside this RGB cell.
+            entries.indices.filter { i ->
+                var lower = 0
+                for (c in 0..2) {
+                    val value = channels[i][c]
+                    val distance = maxOf(low[c] - value, value - low[c] - 7, 0)
+                    lower += distance * distance
+                }
+                lower <= upper
+            }.toIntArray().also { cache[cell] = it }
+        }
+        var closest = Int.MAX_VALUE
+        var chosen = lookup[cell]
+        for (i in possible) {
+            val dr = red - channels[i][0]
+            val dg = green - channels[i][1]
+            val db = blue - channels[i][2]
+            val error = dr * dr + dg * dg + db * db
+            if (error < closest) { closest = error; chosen = entries[i] }
+        }
+        return chosen
+    }
+
     override fun dither(image: Image, newColors: MutableSet<Color>): Image {
         val width = image.width
         val height = image.height
@@ -178,14 +217,17 @@ private class PaletteLookupDitherer(palette: Set<Color>, private val diffuse: Bo
             for (x in 0 until width) {
                 val source = image.getColor(x, y)
                 val pos = (x + 1) * 3
-                val red = (source.getComponent(0) * 255 + current[pos]).toInt().coerceIn(0, 255)
-                val green = (source.getComponent(1) * 255 + current[pos + 1]).toInt().coerceIn(0, 255)
-                val blue = (source.getComponent(2) * 255 + current[pos + 2]).toInt().coerceIn(0, 255)
-                val chosen = lookup[((red shr 3) shl 10) or ((green shr 3) shl 5) or (blue shr 3)]
+                val rounding = if (precise) 0.5f else 0f
+                val red = (source.getComponent(0) * 255 + current[pos] + rounding).toInt().coerceIn(0, 255)
+                val green = (source.getComponent(1) * 255 + current[pos + 1] + rounding).toInt().coerceIn(0, 255)
+                val blue = (source.getComponent(2) * 255 + current[pos + 2] + rounding).toInt().coerceIn(0, 255)
+                val cell = ((red shr 3) shl 10) or ((green shr 3) shl 5) or (blue shr 3)
+                val chosen = if (precise) nearest(red, green, blue, cell) else lookup[cell]
                 result[y][x] = chosen
                 if (diffuse) for (c in 0..2) {
+                    val component = chosen.getComponent(c) * 255
                     val error = (when (c) { 0 -> red; 1 -> green; else -> blue }) -
-                        (chosen.getComponent(c) * 255).toFloat()
+                        (if (precise) component.toInt().toFloat() else component.toFloat())
                     if (x + 1 < width) current[pos + 3 + c] += error * 7 / 16
                     if (y + 1 < height) {
                         if (x > 0) next[pos - 3 + c] += error * 3 / 16

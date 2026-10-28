@@ -154,6 +154,69 @@ public class UgoiraConverterTest {
         } finally { archive.delete(); }
     }
 
+    private File precisionArchive() throws Exception {
+        File archive = File.createTempFile("pixload-precision-", ".zip", directory);
+        int[] colors = new int[64 * 8];
+        for (int y = 0; y < 8; y++) for (int x = 0; x < 64; x++) {
+            int channel = x % 2 == 0 ? 16 : 23;
+            // More than 256 source colors ensure Square actually invokes palette reduction.
+            colors[y * 64 + x] = y % 4 == 0 ? Color.rgb(channel, channel, channel)
+                    : Color.rgb(64 + x, y * 32, 128);
+        }
+        try (ZipOutputStream zip = new ZipOutputStream(new FileOutputStream(archive))) {
+            Bitmap frame = Bitmap.createBitmap(colors, 64, 8, Bitmap.Config.ARGB_8888);
+            try {
+                zip.putNextEntry(new ZipEntry("precision.png"));
+                frame.compress(Bitmap.CompressFormat.PNG, 100, zip);
+                zip.closeEntry();
+            } finally {
+                frame.recycle();
+            }
+        }
+        return archive;
+    }
+
+    @Test public void qualityPreservesNearbyPaletteColors() throws Exception {
+        File archive = precisionArchive();
+        try {
+            JSONArray frames = new JSONArray().put(new JSONObject().put("file", "precision.png").put("delay", 100));
+            ByteArrayOutputStream output = new ByteArrayOutputStream();
+            UgoiraConverter.gif(archive, frames, output, (done, total) -> {}, GifPreset.QUALITY);
+            byte[] data = output.toByteArray();
+            Movie movie = Movie.decodeByteArray(data, 0, data.length);
+            assertTrue(movie != null);
+            assertEquals(64, movie.width());
+            assertEquals(8, movie.height());
+            assertEquals(100, movie.duration());
+            Bitmap result = Bitmap.createBitmap(64, 8, Bitmap.Config.ARGB_8888);
+            try {
+                movie.setTime(0);
+                movie.draw(new Canvas(result), 0, 0);
+                for (int x = 0; x < 64; x++) {
+                    int channel = x % 2 == 0 ? 16 : 23;
+                    assertEquals("Pixel " + x, Color.rgb(channel, channel, channel), result.getPixel(x, 0));
+                }
+            } finally { result.recycle(); }
+        } finally { archive.delete(); }
+    }
+
+    @Test public void fastAndBalancedEncodingRemainStable() throws Exception {
+        File archive = precisionArchive();
+        try {
+            JSONArray frames = new JSONArray().put(new JSONObject().put("file", "precision.png").put("delay", 100));
+            for (GifPreset preset : new GifPreset[]{GifPreset.FAST, GifPreset.BALANCED}) {
+                ByteArrayOutputStream output = new ByteArrayOutputStream();
+                UgoiraConverter.gif(archive, frames, output, (done, total) -> {}, preset);
+                byte[] digest = java.security.MessageDigest.getInstance("SHA-256").digest(output.toByteArray());
+                StringBuilder hash = new StringBuilder();
+                for (byte value : digest) hash.append(String.format(java.util.Locale.ROOT, "%02x", value & 255));
+                assertEquals(preset == GifPreset.FAST
+                        ? "8092f76d897a6031cc89d3a357c11298c6bfa42c76ab5b612313cc70d781b01a"
+                        : "3a47b52ac68ca2e9f522e6f37dcfdc1243fa8ae0db0992db9241156678490728", hash.toString());
+            }
+        } finally { archive.delete(); }
+    }
+
     @Test public void convertsFullSizeColorfulGif() throws Exception {
         File archive = File.createTempFile("pixload-fullsize-", ".zip", directory);
         try {
