@@ -36,6 +36,8 @@ S15. "En la galeria, cada card debe limitar el titulo a una sola linea (usando .
 
 S16. "Si es que es posible, las miniaturas en los items en la cola deben cachearse, para que no se vuelvan a cargar si se cierra la app."
 
+S17. Fix the installed APK startup crash reported verbatim as "la app no abre". The user explicitly authorized "Sí, corregir y compilar", without authorizing installation of the replacement APK.
+
 ## Tasks
 
 T1 [S1,S3,S5,S6] inline: `DownloadQueue` store with per-job state, FIFO order, 5-slot cap counting queued+active, complete/error/cancel release, aggregate progress, JSON persistence on state transitions only, interrupted recovery on load; pure state book covered by JVM tests. Commit 3f2b808. Evidence: `DownloadQueueBookTest` green.
@@ -63,6 +65,8 @@ T11 [S13] inline: commit e87cd95. The clear required the last queued work to be 
 T12 [S14,S15] inline implemented, device proof pending: commit 3514f94. Cancel glyph now has a 32 dp drawn area inside a 48 dp touch target (20% smaller than its former 40 dp drawn area); gallery titles use one line with end ellipsis and badges overlay the top right of each thumbnail. `GalleryFormatTest` and `QueueCancelScaleProbeTest` green; independent verifier rechecked the scale correction. Rendered device appearance remains unverified.
 
 T13 [S16] inline implemented, review blocked: commit 3514f94. Queue thumbnails use sampled JPEG in an 8 MiB app-private disk cache keyed by SHA-256 URL with atomic concurrent writes; preview view's two-argument Java ABI is retained. `QueueThumbnailCacheTest` (restart, eviction, corruption, parallel writes) green; independent verifier found no cache blocker. Native review of 1daf99f..3514f94 stopped as escalated (`unknown_causality`, finding `R3-offline-thumbnail-contract`) and has no approved acknowledgement; on-device restart/offline behavior unverified.
+
+T14 [S17] inline implemented, on-device launch proof pending: commit 15c0c4b. `PreviewImages.queueCache` now uses Kotlin's synchronized lazy initialization so `MainActivity` does not access `cacheDir` during construction; two thumbnail workers can safely request the cache after attachment. Host regression RED with `NoSuchFieldException: queueCache$delegate` before the change, GREEN after; `MainActivityStartupTest` constructs an unattached Activity on Android but was compiled, not run on a device. Full checks: 76 app JVM tests, 24 shared tests, `assembleDebug` and `assembleDebugAndroidTest` GREEN with `--rerun-tasks`. Independent verifier found no change-caused blocker in scratch but could not establish an on-device launch. New APK SHA-256 `58218e92d408c1c7bfb3b3af1504f3a70c3a01f99c38c72cdf4437f4365ff1d7`. No installation was authorized for this replacement build; previous native review stop remains pending.
 
 ## Log
 
@@ -100,3 +104,7 @@ L13. Commit 3514f94 implements S14-S16. Test-first evidence: QueueThumbnailCache
 L14. User chose "Mantener revisión" after the native stop: leave review enabled and the code candidate pending until the stopped review is inspected. Do not claim approval, disable the clone, install the new APK, or publish as part of this choice. Device proof remains a separate authorization.
 
 L15. On 2026-10-28 the user separately authorized installation: "actualiza la apk en mi celular para probarla". Before replacing the installed app, `DownloadService` was inactive and exactly one connected phone was found; `adb install -r` succeeded. The installed `base.apk` SHA-256 matched the compiled debug APK: `51ee6ef2a314193ea6faab2752f81ea16a0e200d79518567bfac0e9af7816c3d`. This authorization covered only this installation, not any future reinstall or push. On-device visual, restart and offline checks remain pending the user's observation. The stopped review remains pending and is not approved by installation.
+
+L16. User reported "la app no abre" after the authorized installation. User separately authorized read-only Android USB ADB diagnostics; repeated AndroidRuntime crashes confirmed `NullPointerException` at `ContextWrapper.getCacheDir` from `PreviewImages.<init>(PreviewImages.kt:27)` called by `MainActivity.<init>(MainActivity.kt:55)`, before the Activity context is attached. User then authorized "Sí, corregir y compilar" but did not authorize a replacement APK installation. The previously stopped native review remains pending.
+
+L17. Fixed the confirmed startup crash with a lazy cache-directory lookup in commit 15c0c4b. A fresh verifier confirmed default Kotlin `lazy` synchronization, unchanged `view(String,int)` ABI and baseline RED/current GREEN from an isolated scratch copy; all verifier scratch was removed. The independent probe was included as host regressions for the early construction, existing ABI, concurrent same-key cache writes, and rejected/unavailable cache states, plus an Android startup test. Final suite and both APK builds GREEN; no on-device run, install or launch check for the new APK. Risk: item 4 (lazy initialization shared by two thumbnail workers); native review of the previous cache commit remains stopped without approval.
