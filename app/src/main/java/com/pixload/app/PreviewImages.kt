@@ -24,7 +24,7 @@ internal class PreviewImages(private val activity: Activity) {
     private val cache = object : LruCache<String, Bitmap>(12 * 1024 * 1024) {
         override fun sizeOf(url: String, bitmap: Bitmap): Int = bitmap.byteCount
     }
-    private val queueCache = QueueThumbnailCache(java.io.File(activity.cacheDir, "queue-thumbnails"))
+    private val queueCache by lazy { QueueThumbnailCache(java.io.File(activity.cacheDir, "queue-thumbnails")) }
 
     @JvmOverloads fun view(url: String?, heightDp: Int, persist: Boolean = false): View {
         val frame = FrameLayout(activity)
