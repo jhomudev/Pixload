@@ -10,7 +10,7 @@ Assumption: next minor version v0.5.0, Android versionCode 5, following the v0.4
 
 ## Tasks
 T1 [S1-S3] inline, done: existing loading/gallery work verified within accepted instrumentation waiver and committed. Risk: item 4 (asynchronous gallery lifecycle changes). Commit: 06af30f; native review approved and acknowledged.
-T2 [S1-S3] inline, verified: version metadata and signed APK; independent verification completed for item 5 (release metadata/artifact). Commit: next release commit.
+T2 [S1-S3] inline, done: version metadata and signed APK; independent verification completed for item 5 (release metadata/artifact). Commit: e50ebbc; additional native review declined for this candidate only.
 T3 [S1-S2] inline, pending: push develop, fast-forward main, annotated tag, GitHub release; verify published asset digest and refs. Commit: pending.
 
 ## Log
@@ -24,3 +24,4 @@ L7. User selected verbatim: "Probar antes de publicar". Publication explicitly p
 L8. Parent removed the three owned external scratch directories listed in L6 after verification; APK/build outputs remain available in the project build directories.
 L9. New request verbatim: "si todo paso bien, has la publicacion". After disclosing instrumentation was still unexecuted and the previous pause, user selected verbatim: "Sí, publicar sin esas pruebas". S3 supersedes the publication pause only; preserve missing runtime-proof disclosure. Same local candidate digest rechecked unchanged. Delivery is one explicitly requested release, not a PR chain; keep existing loading behavior and its tests coherent rather than splitting by file type or rewriting user work to fit a line heuristic.
 L10. Commit 06af30f contains pending gallery/loading behavior, tests and tracking (609 authored lines). Parent assessment escalated item 4 high/due. User granted candidate review. Native three-lens review approved with no blockers; two reliability advisories identify incomplete gallery lifecycle/thumbnail completion coverage, separate follow-up only. Exact acknowledgement succeeded with authority burned for review-63d490762956bfd5, target sha256:3fcd7b57d25e9193c6ee13114f1ecf20e9fc222e11441369f62cec44b7e2db1e. Reviewed boundary is 06af30f. No source corrections or new runtime claims.
+L11. Commit e50ebbc contains only version metadata and tracking (9 authored lines). Parent assessment escalated item 5 high/due. User selected verbatim: "Omitir esta vez" for this candidate; exact decline returned action declined, consent declined_this_candidate and matching target sha256:cfe19fb1f93f990b5b678760c17fc1981ab8369172bab79050a87d3dab4e6692. No review record created for that candidate; mode unchanged. Independent artifact verification remains valid. Publication proceeds under explicit user authorization.
