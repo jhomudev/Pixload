@@ -30,6 +30,12 @@ S12. The bottom card's "Abrir en galería" action also works while the queue scr
 
 S13. When a queue finishes, the link box and the preview of the queued work are cleared, whichever job wrote the last finished status. (User verbatim: "Ademas cuando hay una cola, al terminar las descargas, el input URL y la vista previa no se limpian".)
 
+S14. "Reduce el tamaño del icono de cancelar descarga en cola, en un 20%." Preserve a usable touch target.
+
+S15. "En la galeria, cada card debe limitar el titulo a una sola linea (usando ...). Ademas debe mencionar que tipo es (MP4, GIF, CARPETA, TXT, etc) ubicado en la parte superior derecha de la card, como una especie de position absolute."
+
+S16. "Si es que es posible, las miniaturas en los items en la cola deben cachearse, para que no se vuelvan a cargar si se cierra la app."
+
 ## Tasks
 
 T1 [S1,S3,S5,S6] inline: `DownloadQueue` store with per-job state, FIFO order, 5-slot cap counting queued+active, complete/error/cancel release, aggregate progress, JSON persistence on state transitions only, interrupted recovery on load; pure state book covered by JVM tests. Commit 3f2b808. Evidence: `DownloadQueueBookTest` green.
@@ -53,6 +59,10 @@ T9 [S8,S9,S10,S11] pending: device verification of the four observations after i
 T10 [S12] inline: commit e87cd95. `render()` evaluates `showQueue` before the tab and the panel keeps offering "Abrir en galería" on the drained queue screen, so the action set the gallery tab and re-rendered the queue. It now leaves the queue first.
 
 T11 [S13] inline: commit e87cd95. The clear required the last queued work to be the job that wrote the final status, but a queue finishes in its own order. The rule lives in `PreviewClear` and compares the work on screen and the link box against the last queued work, pinned by `PreviewClearTest`.
+
+T12 [S14,S15] inline implemented, device proof pending: commit 3514f94. Cancel glyph now has a 32 dp drawn area inside a 48 dp touch target (20% smaller than its former 40 dp drawn area); gallery titles use one line with end ellipsis and badges overlay the top right of each thumbnail. `GalleryFormatTest` and `QueueCancelScaleProbeTest` green; independent verifier rechecked the scale correction. Rendered device appearance remains unverified.
+
+T13 [S16] inline implemented, review blocked: commit 3514f94. Queue thumbnails use sampled JPEG in an 8 MiB app-private disk cache keyed by SHA-256 URL with atomic concurrent writes; preview view's two-argument Java ABI is retained. `QueueThumbnailCacheTest` (restart, eviction, corruption, parallel writes) green; independent verifier found no cache blocker. Native review of 1daf99f..3514f94 stopped as escalated (`unknown_causality`, finding `R3-offline-thumbnail-contract`) and has no approved acknowledgement; on-device restart/offline behavior unverified.
 
 ## Log
 
@@ -78,3 +88,11 @@ L10. User report verbatim: "cuando hago una sola descarga si funciona, pero cuan
 
 L11. Two independent queue-only causes. (1) The panel action set `tab = 2` but left `showQueue` true, and `render()` evaluates `showQueue` before the tab, so the tap re-rendered the queue screen and never reached the gallery; with a single download the queue screen is never open, which is why it worked. The action now clears `showQueue` first. (2) The clear compared `last_queued_work_id` with `completed.workId`, so a queue whose last finisher was not the last queued work never cleared the link box or the preview; the rule now compares the work on screen and the link box against the last queued work. A fabricated completed status in the owner profile showed the wiring was already correct (the action navigates to the gallery detail when the queue screen is closed), which narrowed both faults to the queue state. Verified: `PreviewClearTest` plus the full suite (65 JVM, 24 shared), `assembleDebug` and `assembleDebugAndroidTest` green with `--rerun-tasks`. Not run: instrumented or on-device checks, still pending in T4 and T9.
 
+L12. User confirmed the prior device fix: "Si funciona." New request verbatim: "Si funciona. Algunas mejoras:
+- Reduce el tamaño del icono de cancelar descarga en cola, en un 20%.
+- En la galeria, cada card debe limitar el titulo a una sola linea (usando ...). Ademas debe mencionar que tipo es (MP4, GIF, CARPETA, TXT, etc) ubicado en la parte superior derecha de la card, como una especie de position absolute.
+- Si es que es posible, las miniaturas en los items en la cola deben cachearse, para que no se vuelvan a cargar si se cierra la app.
+
+Si tienes dudas, preguntame." The existing preview bitmap LRU is per Activity and loses contents at process exit. UI and cache are inline units sharing MainActivity; disk cache changes concurrent workers and needs independent verification (item 4).
+
+L13. Commit 3514f94 implements S14-S16. Test-first evidence: QueueThumbnailCacheTest RED because the cache class was absent; GalleryFormatTest RED because the format mapping was absent; both GREEN after implementation. An independent verifier reported that padding 14.4 dp produced a 19.2 dp glyph instead of the requested 32 dp, so the parent changed it to 8 dp on a 48 dp touch target; focused regression probe GREEN and one limited verifier recheck confirmed the correction. Full suite `:shared:testAndroidHostTest :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest --rerun-tasks` GREEN (72 app JVM tests, 24 shared tests, both APKs built). Impeccable detector returned `[]`. Native review was granted for the exact code candidate (1daf99f..3514f94), but ended escalated/terminal at `native_stop_required` because finding `R3-offline-thumbnail-contract` had unknown causality; no approved receipt. No on-device install, visual, restart or offline check for this APK was authorized or run. Waiting on the review stop decision and separately on install authorization for device proof.
