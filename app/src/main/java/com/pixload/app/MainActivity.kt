@@ -27,6 +27,7 @@ import android.view.inputmethod.InputMethodManager
 import android.webkit.CookieManager
 import android.widget.CheckBox
 import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -488,7 +489,7 @@ open class MainActivity : Activity() {
         for (item in items) {
             val card = Ui.card(this, 12)
             val row = Ui.row(this)
-            row.addView(images.view(item.thumbnail, 120), LinearLayout.LayoutParams(Ui.dp(this, 56f), Ui.dp(this, 56f)))
+            row.addView(images.view(item.thumbnail, 120, persist = true), LinearLayout.LayoutParams(Ui.dp(this, 56f), Ui.dp(this, 56f)))
             val info = Ui.column(this)
             val infoParams = LinearLayout.LayoutParams(0, -2, 1f)
             infoParams.leftMargin = Ui.dp(this, 12f)
@@ -513,13 +514,14 @@ open class MainActivity : Activity() {
             info.addView(detailView)
             row.addView(info, infoParams)
             val action = Ui.icon(this, R.drawable.tabler_x, Ui.MUTED)
+            action.setPadding(Ui.dp(this, 8f), Ui.dp(this, 8f), Ui.dp(this, 8f), Ui.dp(this, 8f))
             action.contentDescription = AppLanguage.label(this, if (waiting) "Cancelar descarga" else "Quitar")
             action.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
             action.setOnClickListener {
                 if (waiting) DownloadService.cancel(this, item.id)
                 else { DownloadQueue.finish(this, item.id); render() }
             }
-            row.addView(action, LinearLayout.LayoutParams(Ui.dp(this, 40f), Ui.dp(this, 40f)))
+            row.addView(action, LinearLayout.LayoutParams(Ui.dp(this, 48f), Ui.dp(this, 48f)))
             card.addView(row)
             var bar: ProgressBar? = null
             if (active) {
@@ -730,10 +732,19 @@ open class MainActivity : Activity() {
                 val entry = entries[j]
                 val card = Ui.card(this, 8)
                 val thumb = galleryImages.tile(entry.cover, entry.mime, 140)
-                card.addView(thumb, LinearLayout.LayoutParams(-1, Ui.dp(this, 140f)))
+                val cover = FrameLayout(this)
+                cover.addView(thumb, FrameLayout.LayoutParams(-1, -1))
+                val format = Ui.text(this, galleryFormat(entry.folder, entry.mime), 11, Ui.WHITE, true)
+                format.text = format.text.toString().uppercase(Locale.forLanguageTag(AppLanguage.current(this)))
+                format.setPadding(Ui.dp(this, 7f), Ui.dp(this, 3f), Ui.dp(this, 7f), Ui.dp(this, 3f))
+                format.background = Ui.background(this, Ui.INPUT, 6)
+                val badge = FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.END)
+                badge.setMargins(0, Ui.dp(this, 8f), Ui.dp(this, 8f), 0)
+                cover.addView(format, badge)
+                card.addView(cover, LinearLayout.LayoutParams(-1, Ui.dp(this, 140f)))
                 Ui.gap(card, this, 8)
                 val name = Ui.rawText(this, entry.title, 14, Ui.WHITE, true)
-                name.maxLines = 2
+                name.maxLines = 1
                 name.ellipsize = android.text.TextUtils.TruncateAt.END
                 card.addView(name)
                 Ui.gap(card, this, 4)

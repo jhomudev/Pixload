@@ -14,6 +14,18 @@ import java.util.ArrayList
  */
 internal fun stripCompletedPrefix(title: String): String = title.removePrefix("Descarga completada: ")
 
+/** The entry MIME is the saved work type; a folder's cover MIME is not its type. */
+internal fun galleryFormat(folder: Boolean, mime: String): String = when {
+    folder -> "Carpeta"
+    mime == "video/mp4" -> "MP4"
+    mime == "image/gif" -> "GIF"
+    mime == "text/plain" -> "TXT"
+    mime == "image/jpeg" -> "JPG"
+    mime == "image/png" -> "PNG"
+    mime == "image/webp" -> "WEBP"
+    else -> "Archivo"
+}
+
 internal object GalleryStore {
     private const val PREFS = "gallery"
     private val LOCK = Any()

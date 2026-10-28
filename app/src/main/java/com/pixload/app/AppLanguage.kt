@@ -79,6 +79,7 @@ internal object AppLanguage {
             "Esta carpeta está vacía." -> "This folder is empty."
             "Volver a la galería" -> "Back to gallery"
             "Carpeta" -> "Folder"
+            "Archivo" -> "File"
             "Ver en pantalla completa" -> "View full screen"
             "Archivo anterior" -> "Previous file"
             "Archivo siguiente" -> "Next file"

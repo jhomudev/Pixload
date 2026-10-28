@@ -24,8 +24,9 @@ internal class PreviewImages(private val activity: Activity) {
     private val cache = object : LruCache<String, Bitmap>(12 * 1024 * 1024) {
         override fun sizeOf(url: String, bitmap: Bitmap): Int = bitmap.byteCount
     }
+    private val queueCache = QueueThumbnailCache(java.io.File(activity.cacheDir, "queue-thumbnails"))
 
-    fun view(url: String?, heightDp: Int): View {
+    @JvmOverloads fun view(url: String?, heightDp: Int, persist: Boolean = false): View {
         val frame = FrameLayout(activity)
         frame.background = Ui.background(activity, Ui.RAISED, 12)
         frame.clipToOutline = true
@@ -44,8 +45,9 @@ internal class PreviewImages(private val activity: Activity) {
             if (cached != null) {
                 image.setImageBitmap(cached)
                 spinner.visibility = View.GONE
+                if (persist) requests.execute { persistThumbnail(url, cached) }
             } else {
-                visibleRequests.add(Thumbnail(frame, image, spinner, url, Ui.dp(activity, heightDp.toFloat())))
+                visibleRequests.add(Thumbnail(frame, image, spinner, url, Ui.dp(activity, heightDp.toFloat()), persist))
             }
         }
         return frame
@@ -67,7 +69,11 @@ internal class PreviewImages(private val activity: Activity) {
 
     private fun fetch(item: Thumbnail) {
         try {
-            val bitmap = cache.get(item.url) ?: download(item.url, item.targetPixels).also { cache.put(item.url, it) }
+            val bitmap = cache.get(item.url) ?: cachedThumbnail(item.url, item.persist)
+                ?: download(item.url, item.targetPixels).also {
+                    cache.put(item.url, it)
+                    if (item.persist) persistThumbnail(item.url, it)
+                }
             activity.runOnUiThread {
                 if (!item.frame.isAttachedToWindow) return@runOnUiThread
                 item.image.setImageBitmap(bitmap)
@@ -79,6 +85,27 @@ internal class PreviewImages(private val activity: Activity) {
                 item.spinner.visibility = View.GONE
                 showError(item.frame)
             }
+        }
+    }
+
+    private fun cachedThumbnail(url: String, persist: Boolean): Bitmap? {
+        if (!persist) return null
+        val bytes = queueCache.get(url) ?: return null
+        val bitmap = try { BitmapFactory.decodeByteArray(bytes, 0, bytes.size) }
+        catch (_: Exception) { null }
+        if (bitmap == null) { queueCache.remove(url); return null }
+        cache.put(url, bitmap)
+        return bitmap
+    }
+
+    private fun persistThumbnail(url: String, bitmap: Bitmap) {
+        try {
+            if (queueCache.get(url) != null) return
+            ByteArrayOutputStream().use { output ->
+                if (bitmap.compress(Bitmap.CompressFormat.JPEG, 85, output)) queueCache.put(url, output.toByteArray())
+            }
+        } catch (_: Exception) {
+            // Cache failures must not turn a successfully loaded image into an error state.
         }
     }
 
@@ -132,7 +159,8 @@ internal class PreviewImages(private val activity: Activity) {
         val image: ImageView,
         val spinner: ProgressBar,
         val url: String,
-        val targetPixels: Int
+        val targetPixels: Int,
+        val persist: Boolean
     ) {
         var started = false
     }
