@@ -176,7 +176,7 @@ internal object DownloadQueue {
 
     @JvmStatic fun percent(context: Context): Int = load(context).percent()
 
-    @JvmOverloads @JvmStatic fun enqueue(context: Context, id: String, title: String, thumbnail: String,
+    @JvmOverloads @JvmStatic @Synchronized fun enqueue(context: Context, id: String, title: String, thumbnail: String,
                                           pages: Int = 0, kind: String = ""): Boolean {
         val queue = load(context)
         val added = queue.add(id, title, thumbnail, pages, kind)
@@ -184,7 +184,7 @@ internal object DownloadQueue {
         return added
     }
 
-    @JvmStatic fun markActive(context: Context, id: String) {
+    @JvmStatic @Synchronized fun markActive(context: Context, id: String) {
         val queue = load(context)
         if (queue.state(id, DownloadQueueBook.ACTIVE, 0, 0)) persist(context, queue)
     }
@@ -194,14 +194,31 @@ internal object DownloadQueue {
         load(context).progress(id, progress, max)
     }
 
-    @JvmStatic fun finish(context: Context, id: String) {
+    @JvmStatic @Synchronized fun finish(context: Context, id: String) {
         val queue = load(context)
         if (queue.remove(id)) persist(context, queue)
+        clearThumbnailsIfFinished(context, queue)
     }
 
     /** Keeps a failed job visible in the queue until the user dismisses it. */
-    @JvmStatic fun fail(context: Context, id: String) {
+    @JvmStatic @Synchronized fun fail(context: Context, id: String) {
         val queue = load(context)
         if (queue.state(id, DownloadQueueBook.ERROR, 0, 0)) persist(context, queue)
+        clearThumbnailsIfFinished(context, queue)
     }
+
+    /** Serialize admission with terminal transitions so a late image cannot repopulate an empty queue. */
+    @JvmStatic @Synchronized fun cacheThumbnail(context: Context, url: String, bytes: ByteArray) {
+        if (load(context).pending().none { it.thumbnail == url }) return
+        thumbnailCache(context).put(url, bytes)
+    }
+
+    private fun clearThumbnailsIfFinished(context: Context, queue: DownloadQueueBook) {
+        if (queue.count() != 0) return
+        try { thumbnailCache(context).clear() }
+        catch (_: Exception) { /* The app cache can be unavailable independently of the downloads. */ }
+    }
+
+    private fun thumbnailCache(context: Context) =
+        QueueThumbnailCache(java.io.File(context.cacheDir, "queue-thumbnails"))
 }

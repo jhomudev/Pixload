@@ -34,6 +34,14 @@ internal class QueueThumbnailCache(private val directory: File, private val maxB
 
     fun remove(url: String) = synchronized(lock) { file(url).delete() }
 
+    fun clear() = synchronized(lock) {
+        try {
+            directory.listFiles()?.forEach { file ->
+                if (file.isFile && (file.extension == "jpg" || file.extension == "tmp")) file.delete()
+            }
+        } catch (_: Exception) { /* Cleanup failure must not interrupt a finished download. */ }
+    }
+
     private fun trim() {
         val files = directory.listFiles()?.filter { it.name.endsWith(".jpg") } ?: return
         var size = files.sumOf { it.length() }

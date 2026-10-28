@@ -102,7 +102,8 @@ internal class PreviewImages(private val activity: Activity) {
         try {
             if (queueCache.get(url) != null) return
             ByteArrayOutputStream().use { output ->
-                if (bitmap.compress(Bitmap.CompressFormat.JPEG, 85, output)) queueCache.put(url, output.toByteArray())
+                if (bitmap.compress(Bitmap.CompressFormat.JPEG, 85, output))
+                    DownloadQueue.cacheThumbnail(activity, url, output.toByteArray())
             }
         } catch (_: Exception) {
             // Cache failures must not turn a successfully loaded image into an error state.

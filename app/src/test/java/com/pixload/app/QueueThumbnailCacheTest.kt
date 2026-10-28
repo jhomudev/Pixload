@@ -12,6 +12,28 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
 class QueueThumbnailCacheTest {
+    @Test fun clearRemovesOnlyQueueCacheFilesAndSurvivesReopening() {
+        val directory = Files.createTempDirectory("thumb-cache-test").toFile()
+        try {
+            val cache = QueueThumbnailCache(directory, 32)
+            cache.put("a", byteArrayOf(1, 2, 3))
+            cache.put("b", byteArrayOf(4, 5, 6))
+            val unfinished = java.io.File(directory, "thumb-unfinished.tmp")
+            unfinished.writeBytes(byteArrayOf(7))
+            val unrelated = java.io.File(directory.parentFile, directory.name + "-download.jpg")
+            try {
+                unrelated.writeBytes(byteArrayOf(9))
+                cache.clear()
+                assertNull(QueueThumbnailCache(directory, 32).get("a"))
+                assertNull(QueueThumbnailCache(directory, 32).get("b"))
+                assertFalse(unfinished.exists())
+                assertEquals(0, directory.listFiles()!!.size)
+                assertArrayEquals(byteArrayOf(9), unrelated.readBytes())
+                cache.clear()
+            } finally { unrelated.delete() }
+        } finally { directory.deleteRecursively() }
+    }
+
     @Test fun survivesNewInstanceWithoutExposingTheUrlInFileNames() {
         val directory = Files.createTempDirectory("thumb-cache-test").toFile()
         try {
