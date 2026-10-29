@@ -14,6 +14,14 @@ class RetryDownloadTest {
         assertNull(retry.copy(pages = emptyList()).validated("42", "image", 3))
     }
 
+    @Test fun probesFilesBeforeCreatingOnlyGroupedOriginalWorks() {
+        // Selecting one page of a two-page work still creates a grouped folder.
+        assertTrue(RetryFilePreflight.requiresProbe("image", 2))
+        assertFalse(RetryFilePreflight.requiresProbe("image", 1))
+        assertFalse(RetryFilePreflight.requiresProbe("ugoira", 1))
+        assertFalse(RetryFilePreflight.requiresProbe("novel", 0))
+    }
+
     @Test fun validatesAnimationFormatAndPresetWithoutFallback() {
         val retry = RetryDownload("42", "ugoira", "content://tree", emptyList(), "gif", "quality")
         assertNotNull(retry.validated("42", "ugoira", 0))

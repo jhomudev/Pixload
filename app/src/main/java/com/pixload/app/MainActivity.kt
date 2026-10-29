@@ -1993,10 +1993,18 @@ open class MainActivity : Activity() {
                     ?: throw java.io.IOException("La obra o las páginas seleccionadas ya no están disponibles. Abre la obra de nuevo.")
                 val urls = if (snapshot.type == "image") pages.map { refreshed.pages[it] }
                     else if (snapshot.type == "ugoira") listOf(refreshed.animationUrl ?: "") else emptyList()
-                // PixivClient.load refreshed the URLs; the service checks each response during transfer.
-                // Probing every URL here would open the same file twice before any work can start.
                 if (urls.any { it.isBlank() })
                     throw java.io.IOException("Pixiv no ofrece los archivos seleccionados. Abre la obra de nuevo.")
+                // Grouped works create a SAF folder: reject unavailable pages before creating it.
+                // Flat works can skip this duplicate request; their failed .part is cleaned by the service.
+                if (RetryFilePreflight.requiresProbe(snapshot.type, refreshed.pages.size)) {
+                    for (url in urls) {
+                        val connection = PixivClient.open(url)
+                        try { if (connection.responseCode != 200)
+                            throw java.io.IOException("Pixiv no ofrece los archivos seleccionados. Abre la obra de nuevo.") }
+                        finally { connection.disconnect() }
+                    }
+                }
                 runOnUiThread {
                     try {
                         if (isFinishing || isDestroyed || DownloadQueue.items(this).none {
