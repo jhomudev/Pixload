@@ -1,5 +1,5 @@
 # Selected Pixload improvements
-Branch: `develop` (agent 1); agent 2 owns EPUB in an isolated worktree. Delivery strategy: ask-on-risk; forecast >400 authored lines across independent work units.
+Branch: `develop` (agent 1); agent 2 owns EPUB in an isolated worktree. Delivery strategy: feature-branch-chain (user selected); forecast >400 authored lines across independent work units.
 Runner: `./gradlew :shared:testAndroidHostTest :app:testDebugUnitTest :app:assembleDebug`; Android instrumentation separately.
 
 ## Specs
@@ -13,8 +13,8 @@ S6. User: "Muy bien, usemos worktrees. crea un PLAN.md (temporal) donde figure e
 
 ## Tasks
 
-T1 [S1,S5] delegated (context backstop): in_progress; gallery query/filter/order with tests and documentation; commit pending.
-T2 [S2,S5] inline after T1: pending; retry from saved selections with tests and documentation; commit pending.
+T1 [S1,S5] delegated (context backstop): done; gallery query/filter/order, RED/GREEN host tests and docs; commit 85f7e28; native assessment medium, reviewDue=false (defer to slice).
+T2 [S2,S5] delegated (context backstop) after T1: in_progress; retry from saved selections with tests and documentation; commit pending.
 T3 [S4,S5] inline after T2: pending; Wi-Fi policy with tests and documentation; commit pending.
 T4 [S3,S6] integration: pending; integrate agent 2 EPUB worktree delivery, run combined checks; commit reference pending.
 T5 [S1-S6] inline: pending; final checks, device proof where authorized/available, record review and delivery boundaries.
@@ -25,3 +25,5 @@ L1. User original request verbatim: "te paso lo que si desarrollaremos e lo que 
 L2. User correction verbatim: "Bien, \"si\" en ambas decisiones a cerrar. antes de iniciar dime que etapas se pueden realizar en paralelo para que otro agente apoye tambien."
 L3. User authorization verbatim: "ok, inicia con lo tuyo".
 L4. Planning: worktree principal is clean on develop at 4f5c590, ahead of origin by 3. `PLAN.md` ignored, provides separate agent assignments. Current gallery cached listing in MainActivity.kt; queue persists card metadata only; DownloadService receives full JSON in start intent and is START_NOT_STICKY. Agent 1 informed user before implementation. T1 delegated because runtime context backstop fired.
+L5. T1: writer observed RED compilation before GalleryQuery existed, GREEN focused GalleryQueryTest with JDK 21/SDK 35, full `:shared:testAndroidHostTest :app:testDebugUnitTest :app:assembleDebug` exit 0, git diff --check exit 0. Parent read diff/test and committed 85f7e28 (202 additions, 8 deletions including task document). Assessment 4f5c590..85f7e28 medium, due=false, no independent verifier; device interaction still untested. Risk: none (gallery history unchanged; presentation-only query).
+L6. User selected feature-branch-chain via the oversized-delivery menu. This sets delivery structure, not push/PR authorization. Previous commits on develop predate this feature; feature slice 1 is gallery commit 85f7e28. Next slice is retry, separate from Wi-Fi and agent 2 EPUB. T2 delegated due to runtime context backstop.

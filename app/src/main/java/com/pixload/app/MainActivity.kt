@@ -525,6 +525,11 @@ open class MainActivity : Activity() {
             }
             row.addView(action, LinearLayout.LayoutParams(Ui.dp(this, 48f), Ui.dp(this, 48f)))
             card.addView(row)
+            if (!waiting && item.retry != null) {
+                Ui.gap(card, this, 8)
+                card.addView(Ui.button(this, "Reintentar", R.drawable.tabler_download, false,
+                    Runnable { retryDownload(item.id) }))
+            }
             var bar: ProgressBar? = null
             if (active) {
                 Ui.gap(card, this, 10)
@@ -1809,6 +1814,18 @@ open class MainActivity : Activity() {
 
     private fun queueConfirmed(folder: Uri, duplicate: Boolean) {
         val work = work ?: return
+        val selection = RetryDownload(work.id ?: "", work.type ?: "", folder.toString(),
+            if (work.type == "image") pageChecks.indices.filter { pageChecks[it].isChecked } else emptyList(),
+            if (work.type == "ugoira") { if (mp4) "mp4" else "gif" }
+            else if (work.type == "novel") "txt" else "",
+            if (work.type == "ugoira" && !mp4) gifPreset.id else "")
+        queueSelection(work, selection, duplicate)
+    }
+
+    private fun queueSelection(work: PixivClient.Work, selection: RetryDownload, duplicate: Boolean,
+                               retry: Boolean = false) {
+        val pages = selection.validated(work.id, work.type, work.pages.size) ?: return
+        val folder = Uri.parse(selection.folder)
         if (DownloadQueue.isFull(this)) {
             Toast.makeText(this, AppLanguage.label(this, "Máximo 5 descargas en la cola."), Toast.LENGTH_SHORT).show()
             return
@@ -1819,9 +1836,12 @@ open class MainActivity : Activity() {
         }
         // The work id doubles as queue key so the same work cannot be enqueued twice.
         val queueId = (work.id ?: "").ifEmpty { "job:" + System.currentTimeMillis() }
-        val queuedPages = if (work.type == "image") pageChecks.count { it.isChecked } else 1
+        val previousRows = DownloadQueue.items(this)
+        val previousIndex = previousRows.indexOfFirst { it.id == queueId && !DownloadQueueBook.isPending(it) && it.retry == selection }
+        if (retry && previousIndex < 0) return
+        val queuedPages = if (work.type == "image") pages.size else 1
         if (!DownloadQueue.enqueue(this, queueId, work.title ?: "", work.thumbnail ?: "",
-                queuedPages, queueKind(work))) {
+                queuedPages, queueKind(work), selection)) {
             Toast.makeText(this, AppLanguage.label(this, "Máximo 5 descargas en la cola."), Toast.LENGTH_SHORT).show()
             return
         }
@@ -1837,25 +1857,23 @@ open class MainActivity : Activity() {
             job.put("duplicate", duplicate)
             val files = JSONArray()
             if (work.type == "image") {
-                for (i in pageChecks.indices) {
-                    if (pageChecks[i].isChecked) {
-                        val url = work.pages[i]
-                        files.put(JSONObject().put("url", url).put("name", String.format(Locale.ROOT,
-                            "%03d.%s", i + 1, PixivClient.extension(url))))
-                    }
+                for (i in pages) {
+                    val url = work.pages[i]
+                    files.put(JSONObject().put("url", url).put("name", String.format(Locale.ROOT,
+                        "%03d.%s", i + 1, PixivClient.extension(url))))
                 }
             } else if (work.type == "ugoira") {
                 files.put(JSONObject().put("url", work.animationUrl)
-                    .put("name", if (mp4) "animacion.mp4" else "animacion.gif")
-                    .put("frames", work.frames).put("format", if (mp4) "mp4" else "gif")
-                    .put("preset", gifPreset.id))
+                    .put("name", if (selection.format == "mp4") "animacion.mp4" else "animacion.gif")
+                    .put("frames", work.frames).put("format", selection.format)
+                    .put("preset", selection.preset))
             } else {
                 files.put(JSONObject().put("name", "novela.txt")
                     .put("text", work.title + "\n" + work.author + "\n\n" + work.text))
             }
             job.put("files", files)
             updateDownloadButton()
-            getPreferences(MODE_PRIVATE).edit().putString("folder", folder.toString())
+            if (!retry) getPreferences(MODE_PRIVATE).edit().putString("folder", folder.toString())
                 .putString("last_queued_work_id", work.id)
                 .putString("last_queued_link", linkValue).apply()
             val intent = Intent(this, DownloadService::class.java)
@@ -1867,11 +1885,77 @@ open class MainActivity : Activity() {
             Toast.makeText(this, message, Toast.LENGTH_LONG).show()
         } catch (error: Exception) {
             if (!started) {
-                DownloadQueue.finish(this, queueId)
+                if (retry) DownloadQueue.rollbackFailedStart(this, queueId, previousRows[previousIndex], previousIndex)
+                else DownloadQueue.finish(this, queueId)
                 DownloadStatus.write(this, "No se pudo iniciar la descarga", "error", 0, 0)
                 refreshProgress()
             }
             Toast.makeText(this, AppLanguage.label(this, "No se pudo iniciar la descarga: ") + AppLanguage.error(this, error.message), Toast.LENGTH_LONG).show()
+        }
+    }
+
+    /** Retry never changes the current preview or its selection. Failed preflight leaves the row intact. */
+    private fun retryDownload(id: String) {
+        val snapshot = DownloadQueue.items(this).firstOrNull { it.id == id &&
+            !DownloadQueueBook.isPending(it) }?.retry ?: return
+        if (DownloadQueue.isFull(this)) {
+            Toast.makeText(this, AppLanguage.label(this, "Máximo 5 descargas en la cola."), Toast.LENGTH_SHORT).show()
+            return
+        }
+        executor.execute {
+            try {
+                val folder = Uri.parse(snapshot.folder)
+                val permission = contentResolver.persistedUriPermissions.any {
+                    it.uri == folder && it.isReadPermission && it.isWritePermission
+                }
+                if (!permission || !DocumentsContract.isTreeUri(folder))
+                    throw java.io.IOException("La carpeta ya no está disponible. Selecciona la carpeta de nuevo y descarga la obra desde su enlace.")
+                val root = DocumentsContract.buildDocumentUriUsingTree(folder, DocumentsContract.getTreeDocumentId(folder))
+                contentResolver.query(root, arrayOf(DocumentsContract.Document.COLUMN_FLAGS), null, null, null).use {
+                    if (it == null || !it.moveToFirst() ||
+                        it.getInt(0) and DocumentsContract.Document.FLAG_DIR_SUPPORTS_CREATE == 0)
+                        throw java.io.IOException("La carpeta ya no está disponible. Selecciona la carpeta de nuevo y descarga la obra desde su enlace.")
+                }
+                val children = DocumentsContract.buildChildDocumentsUriUsingTree(root, DocumentsContract.getDocumentId(root))
+                contentResolver.query(children, arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME), null, null, null).use {
+                    if (it == null) throw java.io.IOException("La carpeta ya no está disponible. Selecciona la carpeta de nuevo y descarga la obra desde su enlace.")
+                }
+                val path = if (snapshot.type == "novel") "novels" else "artworks"
+                val refreshed = PixivClient.load("https://www.pixiv.net/$path/${snapshot.id}")
+                val pages = snapshot.validated(refreshed.id, refreshed.type, refreshed.pages.size)
+                    ?: throw java.io.IOException("La obra o las páginas seleccionadas ya no están disponibles. Abre la obra de nuevo.")
+                val urls = if (snapshot.type == "image") pages.map { refreshed.pages[it] }
+                    else if (snapshot.type == "ugoira") listOf(refreshed.animationUrl ?: "") else emptyList()
+                for (url in urls) {
+                    if (url.isBlank()) throw java.io.IOException("Pixiv no ofrece los archivos seleccionados. Abre la obra de nuevo.")
+                    val connection = PixivClient.open(url)
+                    try { if (connection.responseCode != 200)
+                        throw java.io.IOException("Pixiv no ofrece los archivos seleccionados. Abre la obra de nuevo.") }
+                    finally { connection.disconnect() }
+                }
+                runOnUiThread {
+                    if (isFinishing || isDestroyed || DownloadQueue.items(this).none {
+                        it.id == id && it.retry == snapshot && !DownloadQueueBook.isPending(it) }) return@runOnUiThread
+                    if (DownloadQueue.isFull(this)) {
+                        Toast.makeText(this, AppLanguage.label(this, "Máximo 5 descargas en la cola."), Toast.LENGTH_SHORT).show()
+                        return@runOnUiThread
+                    }
+                    val duplicate = try { GalleryStore.hasCompleted(this, refreshed.id, snapshot.folder) }
+                    catch (error: IllegalStateException) {
+                        Toast.makeText(this, AppLanguage.error(this, error.message), Toast.LENGTH_LONG).show()
+                        return@runOnUiThread
+                    }
+                    if (duplicate) AlertDialog.Builder(this, AlertDialog.THEME_DEVICE_DEFAULT_DARK)
+                        .setTitle(R.string.duplicate_title).setMessage(R.string.duplicate_message)
+                        .setNegativeButton(R.string.cancel, null)
+                        .setPositiveButton(R.string.continue_download) { _, _ -> queueSelection(refreshed, snapshot, true, retry = true) }
+                        .show()
+                    else queueSelection(refreshed, snapshot, false, retry = true)
+                }
+            } catch (error: Exception) {
+                runOnUiThread { if (!isFinishing && !isDestroyed)
+                    Toast.makeText(this, AppLanguage.error(this, error.message), Toast.LENGTH_LONG).show() }
+            }
         }
     }
 

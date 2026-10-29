@@ -22,7 +22,8 @@ internal class DownloadQueueBook {
         /** Pages or files the work will produce; 0 when unknown (legacy rows). */
         @JvmField var pages: Int = 0,
         /** Work type label shown in the queue row, empty for legacy rows. */
-        @JvmField var kind: String = ""
+        @JvmField var kind: String = "",
+        @JvmField var retry: RetryDownload? = null
     )
 
     private val items = ArrayList<Item>()
@@ -36,11 +37,11 @@ internal class DownloadQueueBook {
     @Synchronized fun isFull(): Boolean = count() >= LIMIT
 
     @JvmOverloads @Synchronized fun add(id: String, title: String, thumbnail: String,
-                                        pages: Int = 0, kind: String = ""): Boolean {
+                                        pages: Int = 0, kind: String = "", retry: RetryDownload? = null): Boolean {
         if (id.isEmpty() || isFull() || items.any { it.id == id && isPending(it) }) return false
         // A retry replaces the stale failed or interrupted row for the same work.
         items.removeAll { it.id == id }
-        items.add(Item(id, title, thumbnail, QUEUED, 0, 0, pages, kind))
+        items.add(Item(id, title, thumbnail, QUEUED, 0, 0, pages, kind, retry))
         return true
     }
 
@@ -61,6 +62,14 @@ internal class DownloadQueueBook {
     }
 
     @Synchronized fun remove(id: String): Boolean = items.removeAll { it.id == id }
+
+    /** Restore a failed retry's original row if Android rejected the service start. */
+    @Synchronized fun rollbackFailedStart(id: String, previous: Item, index: Int): Boolean {
+        val current = items.firstOrNull { it.id == id && it.state == QUEUED } ?: return false
+        items.remove(current)
+        items.add(index.coerceIn(0, items.size), previous)
+        return true
+    }
 
     @Synchronized fun load(restored: List<Item>) {
         items.clear()
@@ -136,8 +145,16 @@ internal object DownloadQueue {
             for (i in 0 until array.length()) {
                 val item = array.getJSONObject(i)
                 val state = item.optString("state", DownloadQueueBook.QUEUED)
-                // A failed job belongs to the previous process; its card is still in DownloadStatus.
-                if (state == DownloadQueueBook.ERROR) continue
+                val snapshot = item.optJSONObject("retry")
+                val retry = try {
+                    if (snapshot == null) null else {
+                        val pages = snapshot.getJSONArray("pages")
+                        if (pages.length() > 10000) null else RetryDownload(
+                            snapshot.getString("id"), snapshot.getString("type"), snapshot.getString("folder"),
+                            (0 until pages.length()).map { pages.getInt(it) },
+                            snapshot.getString("format"), snapshot.getString("preset"))
+                    }
+                } catch (_: Exception) { null }
                 restored.add(DownloadQueueBook.Item(
                     item.optString("id", ""),
                     item.optString("title", ""),
@@ -146,7 +163,9 @@ internal object DownloadQueue {
                     item.optInt("progress", 0),
                     item.optInt("max", 0),
                     item.optInt("pages", 0),
-                    item.optString("kind", "")))
+                    item.optString("kind", ""), retry?.takeIf {
+                        it.id == item.optString("id", "") &&
+                            it.validated(it.id, it.type, Int.MAX_VALUE) != null }))
             }
             restored
         } catch (_: Exception) {
@@ -157,10 +176,14 @@ internal object DownloadQueue {
     private fun persist(context: Context, queue: DownloadQueueBook) {
         val array = JSONArray()
         for (item in queue.items()) {
-            array.put(JSONObject().put("id", item.id).put("title", item.title)
+            val row = JSONObject().put("id", item.id).put("title", item.title)
                 .put("thumbnail", item.thumbnail).put("state", item.state)
                 .put("progress", item.progress).put("max", item.max)
-                .put("pages", item.pages).put("kind", item.kind))
+                .put("pages", item.pages).put("kind", item.kind)
+            item.retry?.let { retry -> row.put("retry", JSONObject()
+                .put("id", retry.id).put("type", retry.type).put("folder", retry.folder)
+                .put("pages", JSONArray(retry.pages)).put("format", retry.format).put("preset", retry.preset)) }
+            array.put(row)
         }
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putString(KEY, array.toString()).apply()
@@ -177,9 +200,9 @@ internal object DownloadQueue {
     @JvmStatic fun percent(context: Context): Int = load(context).percent()
 
     @JvmOverloads @JvmStatic @Synchronized fun enqueue(context: Context, id: String, title: String, thumbnail: String,
-                                          pages: Int = 0, kind: String = ""): Boolean {
+                                          pages: Int = 0, kind: String = "", retry: RetryDownload? = null): Boolean {
         val queue = load(context)
-        val added = queue.add(id, title, thumbnail, pages, kind)
+        val added = queue.add(id, title, thumbnail, pages, kind, retry)
         if (added) persist(context, queue)
         return added
     }
@@ -198,6 +221,12 @@ internal object DownloadQueue {
         val queue = load(context)
         if (queue.remove(id)) persist(context, queue)
         clearThumbnailsIfFinished(context, queue)
+    }
+
+    @JvmStatic @Synchronized fun rollbackFailedStart(context: Context, id: String,
+                                                      previous: DownloadQueueBook.Item, index: Int) {
+        val queue = load(context)
+        if (queue.rollbackFailedStart(id, previous, index)) persist(context, queue)
     }
 
     /** Keeps a failed job visible in the queue until the user dismisses it. */
