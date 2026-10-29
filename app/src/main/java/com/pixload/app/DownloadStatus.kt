@@ -52,6 +52,10 @@ internal class DownloadStatus private constructor(
                 .putString("last_uri", uri).putString("last_title", title).apply()
         }
 
+        /** The card action belongs to the current completed work, never to a later failure. */
+        @JvmStatic fun canOpen(context: Context, status: DownloadStatus?): Boolean =
+            status?.state == "complete" && (!status.documentUri.isNullOrEmpty() || lastUri(context) != null)
+
         /** Newest successfully finished download, kept even if a later job overwrote the status. */
         @JvmStatic fun lastUri(context: Context): String? {
             val uri = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("last_uri", "")

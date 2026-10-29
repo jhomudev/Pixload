@@ -49,6 +49,29 @@ public class DownloadButtonStatusTest {
         }
     }
 
+    @Test public void interruptedOrFailedWorkCannotOfferAnOlderDownloadAsItsResult() {
+        Context context = isolatedContext();
+        SharedPreferences prefs = context.getSharedPreferences("download_status", Context.MODE_PRIVATE);
+        prefs.edit().clear().commit();
+        try {
+            DownloadStatus.completed(context, "Descarga completada: Antigua", "content://test/old", "image/png", false);
+            assertTrue(DownloadStatus.canOpen(context, DownloadStatus.read(context)));
+            DownloadStatus.write(context, "Wi-Fi perdido · Reintentar", "interrupted", 0, 0);
+            java.util.Map<String, ?> before = prefs.getAll();
+            assertFalse(DownloadStatus.canOpen(context, DownloadStatus.read(context)));
+            assertEquals("content://test/old", DownloadStatus.lastUri(context));
+            assertEquals(before, prefs.getAll());
+            DownloadStatus.write(context, "Error: fallo", "error", 0, 0);
+            before = prefs.getAll();
+            assertFalse(DownloadStatus.canOpen(context, DownloadStatus.read(context)));
+            assertEquals(before, prefs.getAll());
+            DownloadStatus.completed(context, "Descarga completada: Nueva", "content://test/new", "image/png", false);
+            assertTrue(DownloadStatus.canOpen(context, DownloadStatus.read(context)));
+        } finally {
+            context.deleteSharedPreferences("download_status");
+        }
+    }
+
     @Test public void absentFieldsUseLegacyDefaultsAndNullForgetDoesNotEdit() {
         Context context = isolatedContext();
         SharedPreferences prefs = context.getSharedPreferences("download_status", Context.MODE_PRIVATE);

@@ -365,8 +365,7 @@ open class MainActivity : Activity() {
         progressNumber!!.setTextColor(if (status.state == "error" || interrupted) Ui.MUTED
             else if (status.state == "complete") Ui.GREEN else Ui.CYAN)
         progressBar!!.visibility = if (active) View.VISIBLE else View.GONE
-        val canOpen = (status.state == "complete" && !status.documentUri.isNullOrEmpty()) ||
-            DownloadStatus.lastUri(this) != null
+        val canOpen = DownloadStatus.canOpen(this, status)
         progressOpen!!.visibility = if (canOpen) View.VISIBLE else View.GONE
         if (canOpen) {
             progressOpen!!.text = AppLanguage.label(this, "Abrir en galería")
