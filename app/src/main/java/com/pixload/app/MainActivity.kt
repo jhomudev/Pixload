@@ -109,6 +109,9 @@ open class MainActivity : Activity() {
     private var galleryScrollY = 0
     private var galleryListRendered = false
     private var galleryScrollPending = false
+    private var gallerySearch = ""
+    private var galleryType = GalleryType.ALL
+    private var galleryOrder = GalleryOrder.ORIGINAL
     private var swipeStartX = 0f
     private var swipeStartY = 0f
     private var swipeEligible = false
@@ -139,6 +142,9 @@ open class MainActivity : Activity() {
             downloadAfterFolderPick = state.getBoolean("downloadAfterFolderPick")
             galleryIndex = state.getInt("galleryIndex", 0)
             galleryScrollY = state.getInt("galleryScrollY", 0)
+            gallerySearch = state.getString("gallerySearch", "") ?: ""
+            galleryType = GalleryType.entries.getOrNull(state.getInt("galleryType")) ?: GalleryType.ALL
+            galleryOrder = GalleryOrder.entries.getOrNull(state.getInt("galleryOrder")) ?: GalleryOrder.ORIGINAL
             galleryFullscreen = state.getBoolean("galleryFullscreen")
             try { galleryEntry = GalleryStore.find(this, state.getString("galleryEntry", "")) }
             catch (_: IllegalStateException) { galleryEntry = null }
@@ -166,6 +172,9 @@ open class MainActivity : Activity() {
         state.putInt("galleryIndex", galleryIndex)
         if (galleryListRendered && !galleryScrollPending && scroll != null) galleryScrollY = scroll!!.scrollY
         state.putInt("galleryScrollY", galleryScrollY)
+        state.putString("gallerySearch", gallerySearch)
+        state.putInt("galleryType", galleryType.ordinal)
+        state.putInt("galleryOrder", galleryOrder.ordinal)
         state.putBoolean("galleryFullscreen", galleryFullscreen)
         super.onSaveInstanceState(state)
     }
@@ -702,7 +711,8 @@ open class MainActivity : Activity() {
         Ui.gap(content, this, 20)
         val cached = galleryCache
         if (cached != null) {
-            galleryEntries(cached)
+            if (cached.isNotEmpty()) galleryControls(cached)
+            else galleryEntries(cached)
             restoreGalleryScroll()
             return
         }
@@ -763,7 +773,87 @@ open class MainActivity : Activity() {
         galleryCache = cached.map { if (it.uri == entry.uri) entry else it }
     }
 
-    private fun galleryEntries(entries: List<GalleryStore.Entry>) {
+    private fun galleryControls(entries: List<GalleryStore.Entry>) {
+        val search = EditText(this)
+        search.setSingleLine(true)
+        search.setTextColor(Ui.WHITE)
+        search.setHintTextColor(Ui.MUTED)
+        search.hint = AppLanguage.label(this, "Buscar por título")
+        search.contentDescription = AppLanguage.label(this, "Buscar por título")
+        search.setText(gallerySearch)
+        content.addView(search, LinearLayout.LayoutParams(-1, -2))
+        Ui.gap(content, this, 12)
+        val types = GalleryType.entries.filter { it == GalleryType.ALL ||
+            galleryQuery(entries, "", it, GalleryOrder.ORIGINAL).isNotEmpty() }
+        galleryChoices(types, galleryType) { type ->
+            galleryType = type
+            scroll?.scrollTo(0, 0)
+            galleryScrollY = 0
+            render()
+        }
+        Ui.gap(content, this, 10)
+        galleryChoices(GalleryOrder.entries, galleryOrder) { order ->
+            galleryOrder = order
+            scroll?.scrollTo(0, 0)
+            galleryScrollY = 0
+            render()
+        }
+        Ui.gap(content, this, 16)
+        val results = Ui.column(this)
+        content.addView(results)
+        fun updateResults() {
+            results.removeAllViews()
+            galleryEntries(galleryQuery(entries, gallerySearch, galleryType, galleryOrder), results, true)
+            scroll?.scrollTo(0, 0)
+            galleryScrollY = 0
+            results.post { galleryImages.loadVisible() }
+        }
+        galleryEntries(galleryQuery(entries, gallerySearch, galleryType, galleryOrder), results, true)
+        search.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                gallerySearch = s?.toString() ?: ""
+                updateResults()
+            }
+            override fun afterTextChanged(s: Editable?) = Unit
+        })
+    }
+
+    private fun <T : Enum<T>> galleryChoices(options: List<T>, selected: T, choose: (T) -> Unit) {
+        val strip = HorizontalScrollView(this)
+        strip.isHorizontalScrollBarEnabled = false
+        val row = Ui.row(this)
+        for (option in options) {
+            val label = when (option) {
+                GalleryType.ALL -> "Todos"
+                GalleryType.IMAGE -> "Imágenes"
+                GalleryType.GIF -> "GIF"
+                GalleryType.MP4 -> "MP4"
+                GalleryType.TXT -> "TXT"
+                GalleryType.FOLDER -> "Carpetas"
+                GalleryOrder.ORIGINAL -> "Orden original"
+                GalleryOrder.NEWEST -> "Más recientes"
+                GalleryOrder.OLDEST -> "Más antiguas"
+                else -> error("Unsupported gallery choice")
+            }
+            val button = Ui.button(this, label, option == selected, Runnable { choose(option) })
+            val params = LinearLayout.LayoutParams(-2, -2)
+            params.rightMargin = Ui.dp(this, 8f)
+            row.addView(button, params)
+        }
+        strip.addView(row)
+        content.addView(strip)
+    }
+
+    private fun galleryEntries(entries: List<GalleryStore.Entry>, target: LinearLayout = content, queried: Boolean = false) {
+        if (entries.isEmpty() && queried) {
+            val empty = Ui.card(this, 18)
+            empty.addView(Ui.text(this, "Sin resultados", 18, Ui.CYAN, true))
+            Ui.gap(empty, this, 9)
+            empty.addView(Ui.text(this, "Prueba otro título o filtro.", 14, Ui.MUTED, false))
+            target.addView(empty)
+            return
+        }
         if (entries.isEmpty()) {
             val empty = Ui.card(this, 18)
             empty.addView(Ui.label(this, "Aún no hay descargas", R.drawable.tabler_layout_grid, 18, Ui.CYAN))
@@ -771,11 +861,11 @@ open class MainActivity : Activity() {
             empty.addView(Ui.text(this, "Las próximas obras que descargues aparecerán aquí.", 14, Ui.MUTED, false))
             Ui.gap(empty, this, 12)
             empty.addView(Ui.button(this, "Buscar una obra", R.drawable.tabler_search, true, Runnable { switchTab(0) }))
-            content.addView(empty)
+            target.addView(empty)
             return
         }
-        content.addView(Ui.text(this, entries.size.toString() + AppLanguage.label(this, if (entries.size == 1) " descarga" else " descargas"), 14, Ui.CYAN, true))
-        Ui.gap(content, this, 12)
+        target.addView(Ui.text(this, entries.size.toString() + AppLanguage.label(this, if (entries.size == 1) " descarga" else " descargas"), 14, Ui.CYAN, true))
+        Ui.gap(target, this, 12)
         for (i in entries.indices step 2) {
             val row = Ui.row(this)
             row.gravity = Gravity.TOP
@@ -839,8 +929,8 @@ open class MainActivity : Activity() {
                 if (j == i) params.rightMargin = Ui.dp(this, 8f)
                 row.addView(card, params)
             }
-            content.addView(row)
-            Ui.gap(content, this, 8)
+            target.addView(row)
+            Ui.gap(target, this, 8)
         }
     }
 
