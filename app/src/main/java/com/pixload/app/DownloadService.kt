@@ -251,58 +251,79 @@ class DownloadService : Service() {
         // Old jobs without "grouped" keep their original directory layout if redelivered.
         val grouped = data.optBoolean("grouped", true)
         val start = startOrdinal(data.optBoolean("duplicate", false))
-        val folder = if (grouped) synchronized(nameLock) { createUniqueFolder(tree, title, start) }
-            else DocumentsContract.buildDocumentUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree))
         val files = data.getJSONArray("files")
         if (files.length() == 0) throw IOException("No hay archivos seleccionados.")
+        val folder = if (grouped) synchronized(nameLock) { createUniqueFolder(tree, title, start) }
+            else DocumentsContract.buildDocumentUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree))
         var lastFile: Uri? = null
         var firstFile: Uri? = null
         var lastMime: String? = null
-        for (i in 0 until files.length()) {
-            ensureAllowed(job)
-            val file = files.getJSONObject(i)
-            job.pageIndex = i
-            job.pageCount = files.length()
-            // Resolution and creation stay atomic: three workers may share the same tree.
-            val created = synchronized(nameLock) {
-                val candidate = if (grouped) file.getString("name")
-                    else uniqueFileName(folder, flatFileName(title, file.getString("name")), start)
-                candidate to (DocumentsContract.createDocument(contentResolver, folder, mime(candidate), "$candidate.part")
-                    ?: throw IOException("No se pudo crear $candidate"))
-            }
-            val name = created.first
-            val output = created.second
-            try {
+        try {
+            for (i in 0 until files.length()) {
                 ensureAllowed(job)
-                if (file.has("frames")) {
-                    convert(job, file, output)
-                } else if (file.has("text")) {
-                    contentResolver.openOutputStream(output, "wt").use { stream ->
-                        if (stream == null) throw IOException("No se pudo escribir $name")
-                        ensureAllowed(job)
-                        NovelDownload.write(file, stream)
-                    }
-                } else {
-                    contentResolver.openOutputStream(output, "wt").use { stream ->
-                        if (stream == null) throw IOException("No se pudo escribir $name")
-                        download(job, file.getString("url"), stream)
-                    }
+                val file = files.getJSONObject(i)
+                job.pageIndex = i
+                job.pageCount = files.length()
+                // Resolution and creation stay atomic: three workers may share the same tree.
+                val created = synchronized(nameLock) {
+                    val candidate = if (grouped) file.getString("name")
+                        else uniqueFileName(folder, flatFileName(title, file.getString("name")), start)
+                    candidate to (DocumentsContract.createDocument(contentResolver, folder, mime(candidate), "$candidate.part")
+                        ?: throw IOException("No se pudo crear $candidate"))
                 }
-                ensureAllowed(job)
-                val renamed = DocumentsContract.renameDocument(contentResolver, output, name)
-                    ?: throw IOException("No se pudo finalizar $name")
-                lastFile = renamed
-                if (firstFile == null) firstFile = renamed
-                lastMime = mime(name)
-                notifyState(job, jobPercent(job, 100))
-            } catch (error: Exception) {
-                try { DocumentsContract.deleteDocument(contentResolver, output) }
-                catch (cleanup: Exception) { error.addSuppressed(cleanup) }
-                throw error
+                val name = created.first
+                val output = created.second
+                try {
+                    ensureAllowed(job)
+                    if (file.has("frames")) {
+                        convert(job, file, output)
+                    } else if (file.has("text")) {
+                        contentResolver.openOutputStream(output, "wt").use { stream ->
+                            if (stream == null) throw IOException("No se pudo escribir $name")
+                            ensureAllowed(job)
+                            NovelDownload.write(file, stream)
+                        }
+                    } else {
+                        contentResolver.openOutputStream(output, "wt").use { stream ->
+                            if (stream == null) throw IOException("No se pudo escribir $name")
+                            download(job, file.getString("url"), stream)
+                        }
+                    }
+                    ensureAllowed(job)
+                    val renamed = DocumentsContract.renameDocument(contentResolver, output, name)
+                        ?: throw IOException("No se pudo finalizar $name")
+                    lastFile = renamed
+                    if (firstFile == null) firstFile = renamed
+                    lastMime = mime(name)
+                    notifyState(job, jobPercent(job, 100))
+                } catch (error: Exception) {
+                    try { DocumentsContract.deleteDocument(contentResolver, output) }
+                    catch (cleanup: Exception) { error.addSuppressed(cleanup) }
+                    throw error
+                }
             }
+        } catch (error: Exception) {
+            try {
+                EmptyFolderRollback.run(grouped, firstFile != null,
+                    isEmpty = { isFolderEmpty(folder) },
+                    delete = {
+                        if (!DocumentsContract.deleteDocument(contentResolver, folder))
+                            throw IOException("No se pudo limpiar la carpeta vacía.")
+                        true
+                    })
+            } catch (cleanup: Exception) { error.addSuppressed(cleanup) }
+            throw error
         }
         return if (grouped) SavedDocument(folder, DocumentsContract.Document.MIME_TYPE_DIR, true, firstFile, files.length())
             else SavedDocument(lastFile, lastMime, false, lastFile, 1)
+    }
+
+    /** Refuse deletion when a provider cannot confirm that the new folder is empty. */
+    private fun isFolderEmpty(folder: Uri): Boolean {
+        val children = DocumentsContract.buildChildDocumentsUriUsingTree(folder, DocumentsContract.getDocumentId(folder))
+        contentResolver.query(children, arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID), null, null, null).use { cursor ->
+            return cursor != null && !cursor.moveToFirst()
+        }
     }
 
     private class SavedDocument(val uri: Uri?, val mime: String?, val folder: Boolean,
