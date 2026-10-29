@@ -95,6 +95,9 @@ open class MainActivity : Activity() {
     private var sessionGeneration = 0
     private var selectedPages: BooleanArray? = null
     private var galleryEntry: GalleryStore.Entry? = null
+    private var galleryCache: List<GalleryStore.Entry>? = null
+    private var galleryCacheError: String? = null
+    private var galleryCacheLoading = false
     private var galleryItems: List<GalleryDocuments.Item>? = null
     private var galleryLoading = false
     private var galleryError: String? = null
@@ -696,35 +699,59 @@ open class MainActivity : Activity() {
         Ui.gap(content, this, 6)
         content.addView(Ui.text(this, "Tus obras descargadas de Pixiv, reunidas en un solo lugar.", 14, Ui.MUTED, false))
         Ui.gap(content, this, 20)
-        val container = content
-        val skeleton = Skeletons.gallery(this)
-        container.addView(skeleton)
+        val cached = galleryCache
+        if (cached != null) {
+            galleryEntries(cached)
+            restoreGalleryScroll()
+            return
+        }
+        val error = galleryCacheError
+        if (error != null) {
+            content.addView(Ui.text(this, error, 14, Ui.MUTED, false))
+            return
+        }
+        content.addView(Skeletons.gallery(this))
+        validateGallery()
+    }
+
+    /** Validates the saved history once per app launch; later visits render from memory. */
+    private fun validateGallery() {
+        if (galleryCacheLoading) return
+        galleryCacheLoading = true
         galleryIO.execute {
+            var entries: List<GalleryStore.Entry>? = null
+            var failure: String? = null
             try {
-                val entries = GalleryStore.list(this).filter { GalleryDocuments.isAvailable(contentResolver, it) }
-                runOnUiThread {
-                    if (isFinishing || isDestroyed || content !== container || tab != 2 || galleryEntry != null) return@runOnUiThread
-                    container.removeView(skeleton)
-                    galleryEntries(entries)
-                    galleryListRendered = true
-                    galleryScrollPending = true
-                    scroll?.post {
-                        if (content === container) {
-                            scroll?.scrollTo(0, galleryScrollY)
-                            galleryScrollPending = false
-                            galleryImages.loadVisible()
-                        }
-                    }
-                }
+                entries = GalleryStore.list(this).filter { GalleryDocuments.isAvailable(contentResolver, it) }
             } catch (error: IllegalStateException) {
-                runOnUiThread {
-                    if (content === container && !isFinishing && !isDestroyed) {
-                        container.removeView(skeleton)
-                        container.addView(Ui.text(this, AppLanguage.error(this, error.message)!!, 14, Ui.MUTED, false))
-                    }
-                }
+                failure = AppLanguage.error(this, error.message)
+                    ?: AppLanguage.label(this, "No se pudo leer el historial de descargas.")
+                    ?: "No se pudo leer el historial de descargas."
+            }
+            val result = entries
+            runOnUiThread {
+                galleryCacheLoading = false
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                galleryCache = result
+                galleryCacheError = failure
+                if (tab == 2 && galleryEntry == null) render()
             }
         }
+    }
+
+    private fun restoreGalleryScroll() {
+        galleryListRendered = true
+        galleryScrollPending = true
+        scroll?.post {
+            scroll?.scrollTo(0, galleryScrollY)
+            galleryScrollPending = false
+            galleryImages.loadVisible()
+        }
+    }
+
+    private fun replaceCachedEntry(entry: GalleryStore.Entry) {
+        val cached = galleryCache ?: return
+        galleryCache = cached.map { if (it.uri == entry.uri) entry else it }
     }
 
     private fun galleryEntries(entries: List<GalleryStore.Entry>) {
@@ -776,8 +803,11 @@ open class MainActivity : Activity() {
                     galleryIO.execute {
                         try {
                             val files = GalleryDocuments.list(contentResolver, entry)
-                            GalleryStore.updateMetadata(this, entry, files.size, if (files.isEmpty()) "" else files[0].uri.toString())
-                            runOnUiThread { if (tab == 2 && galleryEntry == null && count.isAttachedToWindow) render() }
+                            val updated = GalleryStore.updateMetadata(this, entry, files.size, if (files.isEmpty()) "" else files[0].uri.toString())
+                            runOnUiThread {
+                                replaceCachedEntry(updated)
+                                if (tab == 2 && galleryEntry == null && count.isAttachedToWindow) render()
+                            }
                         } catch (_: Exception) { runOnUiThread {
                             card.removeView(countSkeleton)
                             count.visibility = View.VISIBLE
@@ -826,6 +856,7 @@ open class MainActivity : Activity() {
                     if (isFinishing || isDestroyed || galleryEntry?.uri != entry.uri) return@runOnUiThread
                     galleryEntry = loaded
                     galleryItems = files
+                    replaceCachedEntry(loaded)
                     galleryIndex = minOf(galleryIndex, maxOf(0, files.size - 1))
                     galleryLoading = false
                     render()
@@ -1020,7 +1051,13 @@ open class MainActivity : Activity() {
 
     private fun importLastDownload() {
         try { GalleryStore.importLast(this) }
-        catch (_: IllegalStateException) { /* The gallery displays the storage error instead of replacing history. */ }
+        catch (_: IllegalStateException) { /* The gallery displays the storage error instead of replacing history. */ return }
+        val cached = galleryCache ?: return
+        try {
+            val known = cached.mapTo(HashSet()) { it.uri }
+            val added = GalleryStore.list(this).filter { it.uri !in known }
+            if (added.isNotEmpty()) galleryCache = added + cached
+        } catch (_: IllegalStateException) { /* Keep the validated list rather than replacing it with an error. */ }
     }
 
     private fun shareGalleryEntry(entry: GalleryStore.Entry) {
@@ -1068,6 +1105,7 @@ open class MainActivity : Activity() {
                     val result = failure
                     runOnUiThread {
                         if (result == null) {
+                            galleryCache = galleryCache?.filterNot { it.uri == entry.uri }
                             if (galleryEntry?.uri == entry.uri) {
                                 galleryEntry = null
                                 galleryItems = null
@@ -1508,30 +1546,6 @@ open class MainActivity : Activity() {
         Ui.gap(content, this, 6)
         content.addView(Ui.text(this, "Personaliza cómo se guardan tus obras de Pixiv.", 14, Ui.MUTED, false))
         Ui.gap(content, this, 22)
-        content.addView(Ui.label(this, "Formato de animación", R.drawable.tabler_movie, 17, Ui.CYAN))
-        Ui.gap(content, this, 10)
-        val formats = Ui.card(this, 16)
-        formats.addView(Ui.text(this, "Formato predeterminado de ugoira", 15, Ui.WHITE, true))
-        Ui.gap(formats, this, 12)
-        val choices = Ui.row(this)
-        for (i in 0 until 2) {
-            val choice = i == 1
-            val option = Ui.button(this, if (choice) "MP4" else "GIF", defaultMp4 == choice, Runnable {
-                defaultMp4 = choice
-                mp4 = choice
-                getPreferences(MODE_PRIVATE).edit().putString("animation_format", if (mp4) "mp4" else "gif").apply()
-                render()
-            })
-            if (defaultMp4 == choice) Ui.withIcon(option, R.drawable.tabler_check, Ui.INPUT)
-            val params = LinearLayout.LayoutParams(0, -2, 1f)
-            if (i == 0) params.rightMargin = Ui.dp(this, 8f)
-            choices.addView(option, params)
-        }
-        formats.addView(choices)
-        Ui.gap(formats, this, 9)
-        formats.addView(Ui.text(this, "También podrás cambiarlo al previsualizar cada obra.", 12, Ui.MUTED, false))
-        content.addView(formats)
-        Ui.gap(content, this, 24)
         content.addView(Ui.label(this, "Ubicación de descargas", R.drawable.tabler_folder, 17, Ui.CYAN))
         Ui.gap(content, this, 10)
         val storage = Ui.card(this, 16)

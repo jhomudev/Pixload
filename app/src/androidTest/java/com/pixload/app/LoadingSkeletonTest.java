@@ -181,6 +181,61 @@ public class LoadingSkeletonTest {
         } finally { release.countDown(); }
     }
 
+    @Test public void galleryRevisitsRenderFromCacheWithoutReloading() throws Exception {
+        android.content.Context context = InstrumentationRegistry.getInstrumentation().getTargetContext();
+        android.content.SharedPreferences prefs = context.getSharedPreferences("gallery", android.content.Context.MODE_PRIVATE);
+        String saved = prefs.getString("entries", null);
+        prefs.edit().putString("entries", "[]").commit();
+        CountDownLatch release = new CountDownLatch(1);
+        CountDownLatch blocked = new CountDownLatch(1);
+        CountDownLatch secondRelease = new CountDownLatch(1);
+        CountDownLatch secondBlocked = new CountDownLatch(1);
+        try (ActivityScenario<MainActivity> scenario = ActivityScenario.launch(MainActivity.class)) {
+            blockGalleryIO(scenario, blocked, release);
+            assertTrue(blocked.await(5, TimeUnit.SECONDS));
+            scenario.onActivity(activity -> {
+                View root = activity.getWindow().getDecorView();
+                assertTrue(clickLabel(root, activity.getString(R.string.nav_gallery)));
+                assertNotNull(root.findViewWithTag("loading-skeleton"));
+            });
+            release.countDown();
+            awaitNoSkeleton(scenario);
+            scenario.onActivity(activity -> assertTrue(hasText(activity.getWindow().getDecorView(),
+                    AppLanguage.label(activity, "Aún no hay descargas"))));
+            blockGalleryIO(scenario, secondBlocked, secondRelease);
+            assertTrue(secondBlocked.await(5, TimeUnit.SECONDS));
+            scenario.onActivity(activity -> {
+                View root = activity.getWindow().getDecorView();
+                assertTrue(clickLabel(root, activity.getString(R.string.nav_download)));
+                assertTrue(clickLabel(root, activity.getString(R.string.nav_gallery)));
+                assertNull(root.findViewWithTag("loading-skeleton"));
+                assertTrue(hasText(root, AppLanguage.label(activity, "Tu galería")));
+                assertTrue(hasText(root, AppLanguage.label(activity, "Aún no hay descargas")));
+            });
+            capture("cache-gallery.png");
+        } finally {
+            release.countDown();
+            secondRelease.countDown();
+            if (saved == null) prefs.edit().remove("entries").commit();
+            else prefs.edit().putString("entries", saved).commit();
+        }
+    }
+
+    private static void blockGalleryIO(ActivityScenario<MainActivity> scenario, CountDownLatch blocked,
+                                       CountDownLatch release) {
+        scenario.onActivity(activity -> {
+            try {
+                Field field = MainActivity.class.getDeclaredField("galleryIO");
+                field.setAccessible(true);
+                ((ExecutorService) field.get(activity)).execute(() -> {
+                    blocked.countDown();
+                    try { release.await(10, TimeUnit.SECONDS); }
+                    catch (InterruptedException error) { Thread.currentThread().interrupt(); }
+                });
+            } catch (ReflectiveOperationException error) { throw new AssertionError(error); }
+        });
+    }
+
     @Test public void viewerSkeletonsGiveWayToTextImagesAndErrors() throws Exception {
         for (String type : new String[]{"text/plain", "image/png"}) {
             for (boolean exists : new boolean[]{true, false}) {
