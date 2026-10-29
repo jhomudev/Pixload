@@ -26,6 +26,18 @@ internal fun galleryFormat(folder: Boolean, mime: String): String = when {
     else -> "Archivo"
 }
 
+/**
+ * Entries a cached gallery listing may import: downloads added since the listing that Android can
+ * still resolve. History hidden by the first validation never comes back, even when a later query
+ * would report it as available.
+ */
+internal fun galleryImports(
+    stored: List<GalleryStore.Entry>,
+    known: Set<String>,
+    hidden: Set<String>,
+    available: (GalleryStore.Entry) -> Boolean
+): List<GalleryStore.Entry> = stored.filter { it.uri !in known && it.uri !in hidden && available(it) }
+
 internal object GalleryStore {
     private const val PREFS = "gallery"
     private val LOCK = Any()

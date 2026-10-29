@@ -98,6 +98,7 @@ open class MainActivity : Activity() {
     private var galleryCache: List<GalleryStore.Entry>? = null
     private var galleryCacheError: String? = null
     private var galleryCacheLoading = false
+    private val hiddenGalleryUris = HashSet<String>()
     private var galleryItems: List<GalleryDocuments.Item>? = null
     private var galleryLoading = false
     private var galleryError: String? = null
@@ -720,20 +721,28 @@ open class MainActivity : Activity() {
         galleryCacheLoading = true
         galleryIO.execute {
             var entries: List<GalleryStore.Entry>? = null
+            var hidden: Set<String> = emptySet()
             var failure: String? = null
             try {
-                entries = GalleryStore.list(this).filter { GalleryDocuments.isAvailable(contentResolver, it) }
+                val stored = GalleryStore.list(this)
+                entries = stored.filter { GalleryDocuments.isAvailable(contentResolver, it) }
+                hidden = stored.mapTo(HashSet()) { it.uri }.apply { removeAll(entries.map { it.uri }) }
             } catch (error: IllegalStateException) {
                 failure = AppLanguage.error(this, error.message)
                     ?: AppLanguage.label(this, "No se pudo leer el historial de descargas.")
                     ?: "No se pudo leer el historial de descargas."
             }
             val result = entries
+            val unavailable = hidden
             runOnUiThread {
                 galleryCacheLoading = false
                 if (isFinishing || isDestroyed) return@runOnUiThread
                 galleryCache = result
                 galleryCacheError = failure
+                if (result != null) {
+                    hiddenGalleryUris.clear()
+                    hiddenGalleryUris.addAll(unavailable)
+                }
                 if (tab == 2 && galleryEntry == null) render()
             }
         }
@@ -1056,15 +1065,18 @@ open class MainActivity : Activity() {
     }
 
     /**
-     * Picks up downloads completed while the echoed listing is cached. Only entries Android can
-     * still resolve are added, so history hidden by the first validation does not come back.
+     * Picks up downloads completed while the echoed listing is cached. Entries the first validation
+     * hid stay hidden, and any other entries must still resolve before they enter the cache.
      */
     private fun syncImportedGallery() {
         val cached = galleryCache ?: return
         val known = cached.mapTo(HashSet()) { it.uri }
+        val hidden = HashSet(hiddenGalleryUris)
         galleryIO.execute {
             val added = try {
-                GalleryStore.list(this).filter { it.uri !in known && GalleryDocuments.isAvailable(contentResolver, it) }
+                galleryImports(GalleryStore.list(this), known, hidden) {
+                    GalleryDocuments.isAvailable(contentResolver, it)
+                }
             } catch (_: IllegalStateException) { return@execute }
             if (added.isEmpty()) return@execute
             runOnUiThread {

@@ -262,6 +262,49 @@ public class LoadingSkeletonTest {
         }
     }
 
+    @Test public void validationRemembersHiddenEntriesSoImportsSkipThem() throws Exception {
+        android.content.Context context = InstrumentationRegistry.getInstrumentation().getTargetContext();
+        android.content.SharedPreferences prefs = context.getSharedPreferences("gallery", android.content.Context.MODE_PRIVATE);
+        String saved = prefs.getString("entries", null);
+        String ghost = "{\"uri\":\"content://com.pixload.test.ghost/document/ghost\",\"title\":\"Ghost work\","
+                + "\"mime\":\"image/png\",\"cover\":\"\",\"folder\":false,\"count\":1,\"date\":0,\"workId\":\"\",\"treeUri\":\"\"}";
+        prefs.edit().putString("entries", "[" + ghost + "]").commit();
+        try (ActivityScenario<MainActivity> scenario = ActivityScenario.launch(MainActivity.class)) {
+            scenario.onActivity(activity -> assertTrue(clickLabel(activity.getWindow().getDecorView(),
+                    activity.getString(R.string.nav_gallery))));
+            awaitNoSkeleton(scenario);
+            CountDownLatch synced = new CountDownLatch(1);
+            scenario.onActivity(activity -> {
+                try {
+                    assertTrue(((java.util.Set<?>) field(activity, "hiddenGalleryUris"))
+                            .contains("content://com.pixload.test.ghost/document/ghost"));
+                    java.lang.reflect.Method sync = MainActivity.class.getDeclaredMethod("syncImportedGallery");
+                    sync.setAccessible(true);
+                    sync.invoke(activity);
+                    ((ExecutorService) field(activity, "galleryIO")).execute(synced::countDown);
+                } catch (ReflectiveOperationException error) { throw new AssertionError(error); }
+            });
+            assertTrue(synced.await(5, TimeUnit.SECONDS));
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync();
+            scenario.onActivity(activity -> {
+                assertFalse(hasText(activity.getWindow().getDecorView(), "Ghost work"));
+                assertEquals(1, GalleryStore.list(activity).size());
+                assertEquals(0, ((java.util.List<?>) field(activity, "galleryCache")).size());
+            });
+        } finally {
+            if (saved == null) prefs.edit().remove("entries").commit();
+            else prefs.edit().putString("entries", saved).commit();
+        }
+    }
+
+    private static Object field(MainActivity activity, String name) {
+        try {
+            Field field = MainActivity.class.getDeclaredField(name);
+            field.setAccessible(true);
+            return field.get(activity);
+        } catch (ReflectiveOperationException error) { throw new AssertionError(error); }
+    }
+
     private static void blockGalleryIO(ActivityScenario<MainActivity> scenario, CountDownLatch blocked,
                                        CountDownLatch release) {
         scenario.onActivity(activity -> {
