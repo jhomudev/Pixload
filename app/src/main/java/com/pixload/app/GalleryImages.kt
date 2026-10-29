@@ -31,9 +31,8 @@ internal class GalleryImages(private val activity: Activity) {
         val frame = FrameLayout(activity)
         frame.background = Ui.background(activity, Ui.RAISED, 12)
         frame.clipToOutline = true
-        if (uri.isNullOrEmpty() || (mime != null && mime.startsWith("text/"))) {
-            val text = mime != null && mime.startsWith("text/")
-            val icon = Ui.icon(activity, if (text) R.drawable.tabler_file_text else R.drawable.tabler_photo_off, Ui.CYAN)
+        if (uri.isNullOrEmpty() || isDocument(mime)) {
+            val icon = Ui.icon(activity, if (isDocument(mime)) R.drawable.tabler_file_text else R.drawable.tabler_photo_off, Ui.CYAN)
             frame.addView(icon, FrameLayout.LayoutParams(Ui.dp(activity, 42f), Ui.dp(activity, 42f), Gravity.CENTER))
             return frame
         }
@@ -111,6 +110,10 @@ internal class GalleryImages(private val activity: Activity) {
     fun shutdown() {
         executor.shutdownNow()
     }
+
+    /** Files the app shows with a document icon instead of decoding a thumbnail. */
+    private fun isDocument(mime: String?): Boolean =
+        mime != null && (mime.startsWith("text/") || "application/epub+zip" == mime)
 
     private class Request(
         val frame: FrameLayout,

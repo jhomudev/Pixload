@@ -91,6 +91,7 @@ open class MainActivity : Activity() {
     private var downloadAfterFolderPick = false
     private var mp4 = false
     private var defaultMp4 = false
+    private var epub = false
     private var gifPreset = GifPreset.BALANCED
     private var sessionGeneration = 0
     private var selectedPages: BooleanArray? = null
@@ -135,6 +136,7 @@ open class MainActivity : Activity() {
             tab = state.getInt("tab", 0)
             linkValue = state.getString("link", linkValue) ?: linkValue
             mp4 = state.getBoolean("mp4", mp4)
+            epub = state.getBoolean("epub", false)
             selectedPages = state.getBooleanArray("pages")
             downloadAfterFolderPick = state.getBoolean("downloadAfterFolderPick")
             galleryIndex = state.getInt("galleryIndex", 0)
@@ -160,6 +162,7 @@ open class MainActivity : Activity() {
         state.putInt("tab", tab)
         state.putString("link", linkValue)
         state.putBoolean("mp4", mp4)
+        state.putBoolean("epub", epub)
         state.putBooleanArray("pages", selectedPages)
         state.putBoolean("downloadAfterFolderPick", downloadAfterFolderPick)
         state.putString("galleryEntry", galleryEntry?.uri ?: "")
@@ -1233,7 +1236,7 @@ open class MainActivity : Activity() {
         Ui.gap(content, this, 10)
         feature(R.drawable.tabler_movie, "GIF o MP4", "Convierte las ugoira al formato que prefieras.")
         Ui.gap(content, this, 10)
-        feature(R.drawable.tabler_file_text, "Novelas en TXT", "Guarda el texto proporcionado por Pixiv.")
+        feature(R.drawable.tabler_file_text, "Novelas en TXT y EPUB", "Guarda el texto de Pixiv en TXT o como libro EPUB.")
         Ui.gap(content, this, 20)
         content.addView(Ui.text(this, "Las descargas continúan en segundo plano. Consulta la notificación para ver su progreso o cancelarlas.", 13, Ui.MUTED, false))
     }
@@ -1308,6 +1311,7 @@ open class MainActivity : Activity() {
         work = null
         mp4 = defaultMp4
         selectedPages = null
+        epub = false
         setPreviewNotice(null, true)
         getPreferences(MODE_PRIVATE).edit().putString("last_link", linkValue).apply()
         val keyboard = getSystemService(InputMethodManager::class.java)
@@ -1487,8 +1491,24 @@ open class MainActivity : Activity() {
         val excerpt = if (text.length > 600) text.substring(0, 600) + "…" else text
         card.addView(Ui.rawText(this, excerpt, 14, Ui.WHITE, false))
         content.addView(card)
+        Ui.gap(content, this, 14)
+        content.addView(Ui.text(this, "Formato de novela", 18, Ui.WHITE, true))
         Ui.gap(content, this, 10)
-        content.addView(Ui.text(this, "Formato: TXT · texto proporcionado por Pixiv", 12, Ui.CYAN, false))
+        val formats = Ui.row(this)
+        for (i in 0 until 2) {
+            val chooseEpub = i == 1
+            val option = Ui.button(this, if (chooseEpub) "EPUB" else "TXT", chooseEpub == epub,
+                Runnable { epub = chooseEpub; render() })
+            option.isSelected = chooseEpub == epub
+            if (chooseEpub == epub) Ui.withIcon(option, R.drawable.tabler_check, Ui.INPUT)
+            val params = LinearLayout.LayoutParams(0, -2, 1f)
+            if (i == 0) params.rightMargin = Ui.dp(this, 8f)
+            formats.addView(option, params)
+        }
+        content.addView(formats)
+        Ui.gap(content, this, 10)
+        content.addView(Ui.text(this, if (epub) "EPUB con título, autor y navegación. El texto es el que proporciona Pixiv."
+            else "TXT · texto proporcionado por Pixiv", 12, Ui.CYAN, false))
     }
 
     private fun downloadBar() {
@@ -1540,7 +1560,7 @@ open class MainActivity : Activity() {
         val count = selectionCount ?: return
         val work = work ?: return
         if (work.type != "image") {
-            count.text = if (work.type == "novel") AppLanguage.label(this, "1 novela · TXT")
+            count.text = if (work.type == "novel") AppLanguage.label(this, if (epub) "1 novela · EPUB" else "1 novela · TXT")
                 else AppLanguage.label(this, "1 animación · ") + if (mp4) "MP4" else "GIF"
             return
         }
@@ -1760,8 +1780,7 @@ open class MainActivity : Activity() {
                     .put("frames", work.frames).put("format", if (mp4) "mp4" else "gif")
                     .put("preset", gifPreset.id))
             } else {
-                files.put(JSONObject().put("name", "novela.txt")
-                    .put("text", work.title + "\n" + work.author + "\n\n" + work.text))
+                files.put(NovelDownload.file(work, epub))
             }
             job.put("files", files)
             updateDownloadButton()

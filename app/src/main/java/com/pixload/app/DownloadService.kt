@@ -17,7 +17,6 @@ import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.IOException
 import java.io.OutputStream
-import java.nio.charset.StandardCharsets
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutorService
@@ -195,7 +194,7 @@ class DownloadService : Service() {
                 } else if (file.has("text")) {
                     contentResolver.openOutputStream(output, "wt").use { stream ->
                         if (stream == null) throw IOException("No se pudo escribir $name")
-                        stream.write(file.getString("text").toByteArray(StandardCharsets.UTF_8))
+                        NovelDownload.write(file, stream)
                     }
                 } else {
                     contentResolver.openOutputStream(output, "wt").use { stream ->
@@ -333,17 +332,6 @@ class DownloadService : Service() {
         return false
     }
 
-    private fun mime(name: String): String {
-        if (name.endsWith(".zip")) return "application/zip"
-        if (name.endsWith(".mp4")) return "video/mp4"
-        if (name.endsWith(".json")) return "application/json"
-        if (name.endsWith(".txt")) return "text/plain"
-        if (name.endsWith(".png")) return "image/png"
-        if (name.endsWith(".webp")) return "image/webp"
-        if (name.endsWith(".gif")) return "image/gif"
-        return "image/jpeg"
-    }
-
     /**
      * Reports [overall], the progress of the whole work, to the queue, so a multi-page row never
      * oscillates between the page count and the current page's byte percentage.
@@ -412,6 +400,20 @@ class DownloadService : Service() {
                 .setAction("cancel")
                 .putExtra("queueId", queueId)
             context.startService(intent)
+        }
+
+        /** The document MIME registered with SAF; `.epub` must not fall back to JPEG. */
+        @JvmStatic
+        fun mime(name: String): String {
+            if (name.endsWith(".zip")) return "application/zip"
+            if (name.endsWith(".epub")) return "application/epub+zip"
+            if (name.endsWith(".mp4")) return "video/mp4"
+            if (name.endsWith(".json")) return "application/json"
+            if (name.endsWith(".txt")) return "text/plain"
+            if (name.endsWith(".png")) return "image/png"
+            if (name.endsWith(".webp")) return "image/webp"
+            if (name.endsWith(".gif")) return "image/gif"
+            return "image/jpeg"
         }
 
         @JvmStatic fun startOrdinal(duplicate: Boolean): Int = DownloadNames.startOrdinal(duplicate)

@@ -13,19 +13,25 @@ Descarga el APK de la [última versión de Pixload en GitHub Releases](https://g
 ## ¿Qué puedes hacer?
 
 - **Abrir obras fácilmente:** pega un enlace de Pixiv, compártelo con Pixload desde otra aplicación o ábrelo directamente. La vista previa muestra título, autor, imágenes y páginas disponibles; en novelas, el texto cuando Pixiv lo proporciona.
-- **Elegir qué guardar:** descarga todas las páginas originales o solo las que selecciones. Las novelas se guardan como TXT y las animaciones *ugoira* se convierten a GIF o MP4; para GIF puedes elegir Rápido, Equilibrado o Calidad. El formato ZIP original no se ofrece.
+- **Elegir qué guardar:** descarga todas las páginas originales o solo las que selecciones. En novelas puedes elegir TXT (predeterminado) o EPUB; las animaciones *ugoira* se convierten a GIF o MP4; para GIF puedes elegir Rápido, Equilibrado o Calidad. El formato ZIP original no se ofrece.
 - **Decidir dónde guardar:** elige una carpeta principal y, si lo prefieres, confirma la carpeta en cada descarga. Las obras de una página, novelas y animaciones usan el título de la obra como nombre de archivo; las obras de varias páginas crean una carpeta con archivos numerados según su página original. La primera descarga usa solo el título (y la extensión en archivos), sin sufijos. Si el nombre ya existe, Pixload añade `(2)`, `(3)`, etc. para evitar sobrescribirlo. Si vuelves a descargar la misma obra en esa carpeta, puedes continuar o cancelar desde un aviso; en otra carpeta no se considera repetida.
 - **Seguir las descargas:** consulta su avance en la app o en la notificación, cancela desde la notificación y abre el resultado en la galería al finalizar. Las descargas pueden continuar mientras la interfaz esté cerrada.
-- **Disfrutar tu galería:** visualiza imágenes, GIF y vídeos, lee novelas, entra en pantalla completa y recorre las páginas con gestos y miniaturas. Comparte una descarga desde su ficha (incluidos los archivos de obras multipágina) o elimínala tras confirmar. Desliza horizontalmente para cambiar entre Descargar, Vista previa, Galería y Ajustes.
+- **Disfrutar tu galería:** visualiza imágenes, GIF y vídeos, lee novelas TXT, entra en pantalla completa y recorre las páginas con gestos y miniaturas. Los EPUB se abren con un lector externo compatible, si está instalado; Pixload no tiene lector EPUB interno. Comparte una descarga desde su ficha (incluidos los archivos de obras multipágina) o elimínala tras confirmar. Desliza horizontalmente para cambiar entre Descargar, Vista previa, Galería y Ajustes.
 - **Cambiar idioma:** en Ajustes, elige Español o English. La interfaz de Pixload conserva el idioma elegido al cerrar y volver a abrir la app; los títulos y textos de Pixiv no se traducen.
 - **Usar tu sesión cuando haga falta:** las obras públicas pueden consultarse sin iniciar sesión; para otras obras, inicia sesión en Pixiv dentro de Pixload. También puedes cerrar sesión desde Ajustes.
 
 ### Uso rápido
 
 1. Abre Pixload y pega o comparte un enlace de obra de Pixiv.
-2. Revisa la vista previa, selecciona las páginas y el formato de animación si corresponde.
+2. Revisa la vista previa y elige las páginas, el formato de animación o TXT/EPUB para novelas según corresponda.
 3. Elige la carpeta de destino y pulsa **Descargar selección**.
 4. Consulta el resultado en **Galería**; toca una obra para verla, compartirla o eliminarla.
+
+### Novelas en EPUB
+
+Selecciona **EPUB** en la vista previa para guardar `título.epub` en la carpeta elegida, con sufijos de colisión como los demás archivos. Incluye título, autor cuando Pixiv lo entrega y navegación. Conserva el texto recibido, incluidos Unicode, saltos de línea y marcas literales de Pixiv; no interpreta esas marcas ni descarga imágenes incrustadas. No añade contenido que Pixiv no entregue. TXT mantiene su salida habitual: título, autor y texto en UTF-8.
+
+En Galería, EPUB muestra un aviso de que no hay vista previa interna. **Abrir con otra aplicación** aparece si Android encuentra un lector compatible; si no, instala un lector EPUB o comparte el archivo con otra aplicación.
 
 ## Privacidad y límites
 

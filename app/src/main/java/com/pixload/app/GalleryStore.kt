@@ -20,6 +20,7 @@ internal fun galleryFormat(folder: Boolean, mime: String): String = when {
     mime == "video/mp4" -> "MP4"
     mime == "image/gif" -> "GIF"
     mime == "text/plain" -> "TXT"
+    mime == "application/epub+zip" -> "EPUB"
     mime == "image/jpeg" -> "JPG"
     mime == "image/png" -> "PNG"
     mime == "image/webp" -> "WEBP"
