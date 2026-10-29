@@ -79,6 +79,8 @@ open class MainActivity : Activity() {
     private var progressOpen: TextView? = null
     private var progressBar: ProgressBar? = null
     private var progressPanel: LinearLayout? = null
+    private var queueDot: View? = null
+    private var queueAction: FrameLayout? = null
     private var work: PixivClient.Work? = null
     private var linkValue = ""
     private var message = ""
@@ -113,7 +115,7 @@ open class MainActivity : Activity() {
     private var galleryScrollPending = false
     private var gallerySearch = ""
     private var galleryType = GalleryType.ALL
-    private var galleryOrder = GalleryOrder.ORIGINAL
+    private var galleryOrder = GalleryOrder.NEWEST
     private var swipeStartX = 0f
     private var swipeStartY = 0f
     private var swipeEligible = false
@@ -147,7 +149,7 @@ open class MainActivity : Activity() {
             galleryScrollY = state.getInt("galleryScrollY", 0)
             gallerySearch = state.getString("gallerySearch", "") ?: ""
             galleryType = GalleryType.entries.getOrNull(state.getInt("galleryType")) ?: GalleryType.ALL
-            galleryOrder = GalleryOrder.entries.getOrNull(state.getInt("galleryOrder")) ?: GalleryOrder.ORIGINAL
+            galleryOrder = GalleryOrder.entries.getOrNull(state.getInt("galleryOrder", GalleryOrder.NEWEST.ordinal)) ?: GalleryOrder.NEWEST
             galleryFullscreen = state.getBoolean("galleryFullscreen")
             try { galleryEntry = GalleryStore.find(this, state.getString("galleryEntry", "")) }
             catch (_: IllegalStateException) { galleryEntry = null }
@@ -215,6 +217,8 @@ open class MainActivity : Activity() {
         progressOpen = null
         progressBar = null
         progressPanel = null
+        queueDot = null
+        queueAction = null
         val fade = fadeNextTab
         fadeNextTab = false
         root = Ui.column(this)
@@ -288,13 +292,19 @@ open class MainActivity : Activity() {
         badge.background = Ui.background(this, Ui.RAISED, 40)
         badge.setOnClickListener { switchTab(3) }
         bar.addView(badge)
-        val queueButton = Ui.icon(this, R.drawable.tabler_transfer_vertical, Ui.CYAN)
-        queueButton.contentDescription = AppLanguage.label(this, "Cola de descargas")
+        val queueButton = FrameLayout(this)
+        queueButton.isFocusable = true
         queueButton.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
-        queueButton.setPadding(Ui.dp(this, 6f), Ui.dp(this, 6f), Ui.dp(this, 6f), Ui.dp(this, 6f))
-        queueButton.background = null
         queueButton.setOnClickListener { openQueue() }
-        val queueParams = LinearLayout.LayoutParams(Ui.dp(this, 36f), Ui.dp(this, 36f))
+        val icon = Ui.icon(this, R.drawable.tabler_transfer_vertical, Ui.CYAN)
+        icon.setPadding(Ui.dp(this, 6f), Ui.dp(this, 6f), Ui.dp(this, 6f), Ui.dp(this, 6f))
+        queueButton.addView(icon, FrameLayout.LayoutParams(Ui.dp(this, 36f), Ui.dp(this, 36f), Gravity.CENTER))
+        val indicator = View(this)
+        indicator.background = Ui.background(this, Ui.WARNING, 8).apply { setStroke(Ui.dp(this@MainActivity, 2f), Ui.INPUT) }
+        queueButton.addView(indicator, FrameLayout.LayoutParams(Ui.dp(this, 13f), Ui.dp(this, 13f), Gravity.TOP or Gravity.END))
+        queueDot = indicator
+        queueAction = queueButton
+        val queueParams = LinearLayout.LayoutParams(Ui.dp(this, 44f), Ui.dp(this, 44f))
         queueParams.leftMargin = Ui.dp(this, 8f)
         bar.addView(queueButton, queueParams)
         root.addView(bar)
@@ -326,8 +336,12 @@ open class MainActivity : Activity() {
 
     private fun refreshProgress() {
         updateDownloadButton()
-        if (showQueue && refreshQueue()) return
         val pending = DownloadQueue.pending(this)
+        queueDot?.visibility = if (pending.isEmpty()) View.GONE else View.VISIBLE
+        queueAction?.contentDescription = AppLanguage.label(this, "Cola de descargas") +
+            if (pending.isEmpty()) "" else " · ${pending.size} " +
+                AppLanguage.label(this, if (pending.size == 1) "descarga pendiente" else "descargas pendientes")
+        if (showQueue && refreshQueue()) return
         val current = if (pending.isEmpty()) DownloadStatus.read(this) else null
         if (current != null && clearCompletedWork(current)) { render(); return }
         if (current != null && current.state == "complete" && !current.documentUri.isNullOrEmpty()
@@ -795,31 +809,46 @@ open class MainActivity : Activity() {
     }
 
     private fun galleryControls(entries: List<GalleryStore.Entry>) {
+        val searchField = Ui.row(this)
+        searchField.background = Ui.outlined(this, Ui.INPUT, 14)
+        searchField.setPadding(Ui.dp(this, 14f), 0, Ui.dp(this, 10f), 0)
+        searchField.addView(Ui.icon(this, R.drawable.tabler_search, Ui.CYAN),
+            LinearLayout.LayoutParams(Ui.dp(this, 20f), Ui.dp(this, 20f)))
         val search = EditText(this)
         search.setSingleLine(true)
         search.setTextColor(Ui.WHITE)
         search.setHintTextColor(Ui.MUTED)
+        search.typeface = Ui.typeface(this, false)
+        search.textSize = 15f
+        search.setBackgroundColor(Color.TRANSPARENT)
+        search.setPadding(Ui.dp(this, 12f), 0, 0, 0)
+        search.minHeight = Ui.dp(this, 48f)
         search.hint = AppLanguage.label(this, "Buscar por título")
         search.contentDescription = AppLanguage.label(this, "Buscar por título")
         search.setText(gallerySearch)
-        content.addView(search, LinearLayout.LayoutParams(-1, -2))
-        Ui.gap(content, this, 12)
+        searchField.addView(search, LinearLayout.LayoutParams(0, -2, 1f))
+        content.addView(searchField, LinearLayout.LayoutParams(-1, -2))
+        Ui.gap(content, this, 20)
+        content.addView(Ui.text(this, "Tipo de archivo", 14, Ui.WHITE, true))
+        Ui.gap(content, this, 8)
         val types = GalleryType.entries.filter { it == GalleryType.ALL ||
             galleryQuery(entries, "", it, GalleryOrder.ORIGINAL).isNotEmpty() }
-        galleryChoices(types, galleryType) { type ->
+        galleryChoices(types, galleryType, "Tipo de archivo") { type ->
             galleryType = type
             scroll?.scrollTo(0, 0)
             galleryScrollY = 0
             render()
         }
-        Ui.gap(content, this, 10)
-        galleryChoices(GalleryOrder.entries, galleryOrder) { order ->
+        Ui.gap(content, this, 18)
+        content.addView(Ui.text(this, "Ordenar por", 14, Ui.WHITE, true))
+        Ui.gap(content, this, 8)
+        galleryChoices(GalleryOrder.entries, galleryOrder, "Ordenar por") { order ->
             galleryOrder = order
             scroll?.scrollTo(0, 0)
             galleryScrollY = 0
             render()
         }
-        Ui.gap(content, this, 16)
+        Ui.gap(content, this, 20)
         val results = Ui.column(this)
         content.addView(results)
         fun updateResults() {
@@ -840,7 +869,7 @@ open class MainActivity : Activity() {
         })
     }
 
-    private fun <T : Enum<T>> galleryChoices(options: List<T>, selected: T, choose: (T) -> Unit) {
+    private fun <T : Enum<T>> galleryChoices(options: List<T>, selected: T, group: String, choose: (T) -> Unit) {
         val strip = HorizontalScrollView(this)
         strip.isHorizontalScrollBarEnabled = false
         val row = Ui.row(this)
@@ -858,10 +887,23 @@ open class MainActivity : Activity() {
                 GalleryOrder.OLDEST -> "Más antiguas"
                 else -> error("Unsupported gallery choice")
             }
-            val button = Ui.button(this, label, option == selected, Runnable { choose(option) })
+            val active = option == selected
+            val chip = Ui.text(this, label, 14, if (active) Ui.INPUT else Ui.CYAN, true)
+            chip.gravity = Gravity.CENTER
+            chip.minHeight = Ui.dp(this, 44f)
+            chip.setPadding(Ui.dp(this, 14f), Ui.dp(this, 8f), Ui.dp(this, 14f), Ui.dp(this, 8f))
+            chip.background = if (active) Ui.background(this, Ui.CYAN, 12) else Ui.outlined(this, Ui.RAISED, 12)
+            chip.isSelected = active
+            val name = AppLanguage.label(this, group) + ": " + AppLanguage.label(this, label)
+            val state = AppLanguage.label(this, if (active) "Seleccionado" else "No seleccionado")
+            if (Build.VERSION.SDK_INT >= 30) {
+                chip.contentDescription = name
+                chip.stateDescription = state
+            } else chip.contentDescription = "$name, $state"
+            chip.setOnClickListener { choose(option) }
             val params = LinearLayout.LayoutParams(-2, -2)
             params.rightMargin = Ui.dp(this, 8f)
-            row.addView(button, params)
+            row.addView(chip, params)
         }
         strip.addView(row)
         content.addView(strip)
