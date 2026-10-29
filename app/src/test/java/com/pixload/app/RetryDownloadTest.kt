@@ -16,10 +16,12 @@ class RetryDownloadTest {
 
     @Test fun probesFilesBeforeCreatingOnlyGroupedOriginalWorks() {
         // Selecting one page of a two-page work still creates a grouped folder.
-        assertTrue(RetryFilePreflight.requiresProbe("image", 2))
-        assertFalse(RetryFilePreflight.requiresProbe("image", 1))
-        assertFalse(RetryFilePreflight.requiresProbe("ugoira", 1))
-        assertFalse(RetryFilePreflight.requiresProbe("novel", 0))
+        assertTrue(RetryFilePreflight.requiresProbe("image", 2, false))
+        assertFalse(RetryFilePreflight.requiresProbe("image", 1, false))
+        assertFalse(RetryFilePreflight.requiresProbe("ugoira", 1, false))
+        assertFalse(RetryFilePreflight.requiresProbe("novel", 0, false))
+        // Only-Wi-Fi transfers must not issue an unbound request on the default cellular route.
+        assertFalse(RetryFilePreflight.requiresProbe("image", 2, true))
     }
 
     @Test fun validatesAnimationFormatAndPresetWithoutFallback() {

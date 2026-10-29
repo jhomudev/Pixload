@@ -1996,8 +1996,9 @@ open class MainActivity : Activity() {
                 if (urls.any { it.isBlank() })
                     throw java.io.IOException("Pixiv no ofrece los archivos seleccionados. Abre la obra de nuevo.")
                 // Grouped works create a SAF folder: reject unavailable pages before creating it.
-                // Flat works can skip this duplicate request; their failed .part is cleaned by the service.
-                if (RetryFilePreflight.requiresProbe(snapshot.type, refreshed.pages.size)) {
+                // Do not probe on the default route when only-Wi-Fi requires a network-bound service.
+                if (RetryFilePreflight.requiresProbe(snapshot.type, refreshed.pages.size,
+                        DownloadService.wifiOnly(this))) {
                     for (url in urls) {
                         val connection = PixivClient.open(url)
                         try { if (connection.responseCode != 200)
