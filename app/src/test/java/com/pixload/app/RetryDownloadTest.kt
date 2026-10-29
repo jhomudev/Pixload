@@ -23,6 +23,14 @@ class RetryDownloadTest {
         assertNull(retry.copy(folder = "").validated("42", "ugoira", 0))
     }
 
+    @Test fun novelRetryPreservesChosenEpubOrTxtFormat() {
+        val epub = RetryDownload("novel-42", "novel", "content://tree", emptyList(), "epub", "")
+        val txt = epub.copy(format = "txt")
+        assertNotNull(epub.validated("novel-42", "novel", 0))
+        assertNotNull(txt.validated("novel-42", "novel", 0))
+        assertNull(epub.copy(format = "pdf").validated("novel-42", "novel", 0))
+    }
+
     @Test fun failureAndInterruptionKeepOriginalSnapshotAndExistingAdmissionRules() {
         val book = DownloadQueueBook()
         val snapshot = RetryDownload("42", "image", "content://tree", listOf(1), "", "")

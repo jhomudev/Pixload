@@ -12,6 +12,7 @@ class GalleryFormatTest {
         assertEquals("MP4", galleryFormat(false, "video/mp4"))
         assertEquals("GIF", galleryFormat(false, "image/gif"))
         assertEquals("TXT", galleryFormat(false, "text/plain"))
+        assertEquals("EPUB", galleryFormat(false, "application/epub+zip"))
         assertEquals("JPG", galleryFormat(false, "image/jpeg"))
         assertEquals("PNG", galleryFormat(false, "image/png"))
         assertEquals("WEBP", galleryFormat(false, "image/webp"))

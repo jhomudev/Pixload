@@ -12,7 +12,7 @@ internal data class RetryDownload(
                 pages.distinct().size == pages.size && pages.all { it in 0 until pageCount }) pages else null
             "ugoira" -> if (pages.isEmpty() && (format == "mp4" && preset.isEmpty() ||
                 format == "gif" && preset in listOf("fast", "balanced", "quality"))) pages else null
-            "novel" -> if (pages.isEmpty() && format == "txt" && preset.isEmpty()) pages else null
+            "novel" -> if (pages.isEmpty() && format in listOf("txt", "epub") && preset.isEmpty()) pages else null
             else -> null
         }
     }

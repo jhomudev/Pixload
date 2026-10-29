@@ -1,6 +1,6 @@
 package com.pixload.app
 
-internal enum class GalleryType { ALL, IMAGE, GIF, MP4, TXT, FOLDER }
+internal enum class GalleryType { ALL, IMAGE, GIF, MP4, TXT, FOLDER, EPUB }
 internal enum class GalleryOrder { ORIGINAL, NEWEST, OLDEST }
 
 /** Presentation only: neither the validated input nor the stored history is reordered. */
@@ -15,6 +15,7 @@ internal fun galleryQuery(
             GalleryType.GIF -> !entry.folder && entry.mime == "image/gif"
             GalleryType.MP4 -> !entry.folder && entry.mime == "video/mp4"
             GalleryType.TXT -> !entry.folder && entry.mime == "text/plain"
+            GalleryType.EPUB -> !entry.folder && entry.mime == "application/epub+zip"
         }
     }
     if (order == GalleryOrder.ORIGINAL) return filtered

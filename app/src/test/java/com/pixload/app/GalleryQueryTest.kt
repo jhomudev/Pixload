@@ -25,6 +25,12 @@ class GalleryQueryTest {
         assertEquals(listOf("6"), galleryQuery(entries, "otro", GalleryType.IMAGE, GalleryOrder.ORIGINAL).map { it.uri })
     }
 
+    @Test fun filtersEpubNovelsWithoutTreatingThemAsTxt() {
+        val entries = listOf(entry("epub", "Story", "application/epub+zip"), entry("txt", "Story", "text/plain"))
+        assertEquals(listOf("epub"), galleryQuery(entries, "story", GalleryType.EPUB, GalleryOrder.ORIGINAL).map { it.uri })
+        assertEquals(listOf("txt"), galleryQuery(entries, "story", GalleryType.TXT, GalleryOrder.ORIGINAL).map { it.uri })
+    }
+
     @Test fun sortsByRegisteredDateStablyWithUndatedEntriesLast() {
         val entries = listOf(entry("undated", "A"), entry("old", "B", date = 10),
             entry("tie1", "C", date = 20), entry("tie2", "D", date = 20), entry("missing", "E"))

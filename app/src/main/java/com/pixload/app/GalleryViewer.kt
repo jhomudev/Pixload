@@ -3,6 +3,8 @@
 package com.pixload.app
 
 import android.app.Activity
+import android.content.ActivityNotFoundException
+import android.content.Intent
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.ImageDecoder
@@ -18,6 +20,7 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.MediaController
+import android.widget.Toast
 import android.widget.VideoView
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
@@ -187,9 +190,34 @@ internal object GalleryViewer {
             }
             return null
         }
+        if ("application/epub+zip" == mime || name.endsWith(".epub")) {
+            // Published EPUBs are read in an external reader; Pixload has no EPUB preview of its own.
+            container.addView(Ui.text(activity, "Este EPUB no se puede previsualizar aquí.", 14, Ui.MUTED, false))
+            Ui.gap(container, activity, 10)
+            val open = epubIntent(item.uri)
+            if (open.resolveActivity(activity.packageManager) == null) {
+                container.addView(Ui.text(activity, "No hay una aplicación para abrir EPUB.", 13, Ui.MUTED, false))
+            } else {
+                container.addView(Ui.button(activity, "Abrir con otra aplicación", R.drawable.tabler_share, true,
+                    Runnable {
+                        try {
+                            activity.startActivity(open)
+                        } catch (_: ActivityNotFoundException) {
+                            Toast.makeText(activity, AppLanguage.label(activity, "No se pudo abrir el EPUB."), Toast.LENGTH_SHORT).show()
+                        } catch (_: SecurityException) {
+                            Toast.makeText(activity, AppLanguage.label(activity, "Se ha perdido el acceso a este archivo."), Toast.LENGTH_LONG).show()
+                        }
+                    }))
+            }
+            return null
+        }
         container.addView(Ui.text(activity, "Este tipo de archivo no tiene vista previa.", 14, Ui.MUTED, false))
         return null
     }
+
+    internal fun epubIntent(uri: Uri): Intent = Intent(Intent.ACTION_VIEW)
+        .setDataAndType(uri, "application/epub+zip")
+        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
 
     @Throws(Exception::class)
     private fun readGif(activity: Activity, uri: Uri): ByteArray {
