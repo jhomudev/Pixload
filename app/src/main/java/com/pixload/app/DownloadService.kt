@@ -141,9 +141,10 @@ class DownloadService : Service() {
                 lastFinishedStage = "Wi-Fi perdido · Reintentar"
                 DownloadStatus.write(this, lastFinishedStage, "interrupted", 0, 0)
             } else {
-                DownloadStatus.write(this, "Error: " + error.message, "error", 0, 0)
+                val safe = UserError.safeSpanish(error.message)
+                DownloadStatus.write(this, "Error: $safe", "error", 0, 0)
                 lastFinishedTitle = job.title
-                lastFinishedStage = "Error: " + error.message
+                lastFinishedStage = "Error: $safe"
                 DownloadQueue.fail(this, job.queueId)
             }
         } finally {

@@ -72,6 +72,38 @@ public class DownloadButtonStatusTest {
         }
     }
 
+    @Test public void errorsNeverDisplayLegacyRawDetailsOrPersistNewRawDetails() {
+        Context context = isolatedContext();
+        SharedPreferences prefs = context.getSharedPreferences("download_status", Context.MODE_PRIVATE);
+        prefs.edit().clear().putString("title", "Error: Pixiv respondió con HTTP 404")
+                .putString("state", "error").putInt("progress", 7).putInt("max", 20).commit();
+        try {
+            for (String language : new String[]{"es", "en"}) {
+                AppLanguage.select(context, language);
+                java.util.Map<String, ?> before = prefs.getAll();
+                DownloadStatus status = DownloadStatus.read(context);
+                assertEquals(language.equals("en") ? "Error: Could not complete the action. Try again." :
+                        "Error: No se pudo completar la operación. Inténtalo de nuevo.", status.title);
+                assertEquals("error", status.state);
+                assertEquals(7, status.progress);
+                assertEquals(20, status.max);
+                assertFalse(DownloadStatus.canOpen(context, status));
+                assertEquals(before, prefs.getAll());
+            }
+            DownloadStatus.write(context, "Error: /storage/provider/private", "error", 3, 8);
+            assertEquals("Error: No se pudo completar la operación. Inténtalo de nuevo.",
+                    prefs.getString("title", ""));
+            assertEquals(3, prefs.getInt("progress", 0));
+            assertEquals(8, prefs.getInt("max", 0));
+            assertEquals("Error: Could not complete the action. Try again.", DownloadStatus.read(context).title);
+            assertEquals("error", DownloadStatus.read(context).state);
+            assertFalse(DownloadStatus.canOpen(context, DownloadStatus.read(context)));
+        } finally {
+            context.deleteSharedPreferences("download_status");
+            context.deleteSharedPreferences("app_language");
+        }
+    }
+
     @Test public void absentFieldsUseLegacyDefaultsAndNullForgetDoesNotEdit() {
         Context context = isolatedContext();
         SharedPreferences prefs = context.getSharedPreferences("download_status", Context.MODE_PRIVATE);

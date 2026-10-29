@@ -24,9 +24,9 @@ internal object AppLanguage {
     }
 
     @JvmStatic fun stage(context: Context, value: String?): String? {
+        if (value?.startsWith("Error: ") == true) return "Error: " + error(context, value.substring(7))
         if (current(context) != "en") return value
         val text = value!!
-        if (text.startsWith("Error: ")) return "Error: " + error(context, text.substring(7))
         if (text.startsWith("Descargando animación · Archivo "))
             return "Downloading animation · File " + text.substring("Descargando animación · Archivo ".length)
         if (text.startsWith("Archivo ")) return "File " + text.substring(8)
@@ -37,16 +37,8 @@ internal object AppLanguage {
         return label(context, text)
     }
 
-    @JvmStatic fun error(context: Context, message: String?): String? {
-        if (message == null || current(context) != "en") return message
-        val exact = label(context, message)
-        if (exact != message) return exact
-        if (message.startsWith("Pixiv respondió con HTTP "))
-            return "Pixiv responded with HTTP " + message.substring("Pixiv respondió con HTTP ".length)
-        for (prefix in arrayOf("No se pudo crear ", "No se pudo escribir ", "No se pudo finalizar "))
-            if (message.startsWith(prefix)) return label(context, prefix) + message.substring(prefix.length)
-        return label(context, message)
-    }
+    @JvmStatic fun error(context: Context, message: String?): String =
+        label(context, UserError.safeSpanish(message))!!
 
     // Only pass app-authored labels here; never pass Pixiv titles, author names or novel text.
     @JvmStatic fun label(context: Context, spanish: String?): String? {
@@ -201,6 +193,7 @@ internal object AppLanguage {
             "Descarga completada: " -> "Download completed: "
             "Descarga cancelada" -> "Download cancelled"
             "Error: " -> "Error: "
+            UserError.FALLBACK_ES -> UserError.FALLBACK_EN
             "Descargando animación · Archivo " -> "Downloading animation · File "
             "Descarga interrumpida" -> "Download interrupted"
             "Conversión interrumpida" -> "Conversion interrupted"

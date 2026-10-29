@@ -81,17 +81,24 @@ public class LanguageSettingTest {
         }
     }
 
-    @Test public void stageAndErrorKeepPrefixesAndUnknownLabels() {
+    @Test public void stageAndErrorSanitizeUnknownDetailsButPreserveSafeMessages() {
         Context context = isolatedContext();
         try {
             AppLanguage.select(context, "en");
-            assertEquals("Error: Pixiv responded with HTTP 403", AppLanguage.stage(context, "Error: Pixiv respondió con HTTP 403"));
+            assertEquals("Error: Could not complete the action. Try again.", AppLanguage.stage(context, "Error: Pixiv respondió con HTTP 403"));
             assertEquals("Downloading animation · File 2", AppLanguage.stage(context, "Descargando animación · Archivo 2"));
-            assertEquals("Could not create Mi obra", AppLanguage.error(context, "No se pudo crear Mi obra"));
+            assertEquals("Could not complete the action. Try again.", AppLanguage.error(context, "No se pudo crear Mi obra"));
+            assertEquals("Could not complete the action. Try again.", AppLanguage.error(context, null));
+            assertEquals("This work requires signing in or is unavailable to your account.",
+                    AppLanguage.error(context, "Esta obra requiere iniciar sesión o no está disponible para tu cuenta."));
             assertEquals("Unknown label", AppLanguage.label(context, "Unknown label"));
-            assertEquals(null, AppLanguage.error(context, null));
             AppLanguage.select(context, "es");
-            assertEquals("Pixiv respondió con HTTP 403", AppLanguage.error(context, "Pixiv respondió con HTTP 403"));
+            assertEquals("Error: No se pudo completar la operación. Inténtalo de nuevo.",
+                    AppLanguage.stage(context, "Error: Pixiv respondió con HTTP 404"));
+            assertEquals("No se pudo completar la operación. Inténtalo de nuevo.",
+                    AppLanguage.error(context, "Pixiv respondió con HTTP 403"));
+            assertEquals("No se puede acceder a la carpeta elegida.",
+                    AppLanguage.error(context, "No se puede acceder a la carpeta elegida."));
         } finally {
             context.deleteSharedPreferences("app_language");
         }

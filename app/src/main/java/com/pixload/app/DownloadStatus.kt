@@ -18,8 +18,11 @@ internal class DownloadStatus private constructor(
         @JvmStatic fun read(context: Context): DownloadStatus? {
             val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             if (!prefs.contains("title") || prefs.getBoolean("hidden", false)) return null
-            return DownloadStatus(AppLanguage.stage(context, prefs.getString("title", "")),
-                prefs.getString("state", "active"), prefs.getInt("progress", 0), prefs.getInt("max", 0),
+            val state = prefs.getString("state", "active")
+            val title = prefs.getString("title", "")
+            return DownloadStatus(if (state == "error") "Error: " + AppLanguage.error(context,
+                title?.removePrefix("Error: ")) else AppLanguage.stage(context, title),
+                state, prefs.getInt("progress", 0), prefs.getInt("max", 0),
                 prefs.getString("document_uri", ""), prefs.getString("mime_type", ""),
                 prefs.getBoolean("folder", false), prefs.getString("work_id", ""))
         }
@@ -32,7 +35,8 @@ internal class DownloadStatus private constructor(
 
         @JvmStatic fun write(context: Context, title: String?, state: String?, progress: Int, max: Int) {
             context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-                .putString("title", title).putString("state", state)
+                .putString("title", if (state == "error") "Error: " + UserError.safeSpanish(
+                    title?.removePrefix("Error: ")) else title).putString("state", state)
                 .putInt("progress", progress).putInt("max", max).putBoolean("hidden", false)
                 .remove("document_uri").remove("mime_type").remove("folder").remove("work_id").apply()
         }
