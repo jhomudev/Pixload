@@ -345,7 +345,7 @@ open class MainActivity : Activity() {
         }
         val status = current ?: return
         // A process death leaves the last active record behind; the queue cannot resume it.
-        val interrupted = status.state == "active"
+        val interrupted = status.state == "active" || status.state == "interrupted"
         progressTitle!!.text = if (interrupted) AppLanguage.label(this, "Descarga interrumpida") else status.title
         val active = status.state == "active" && !interrupted
         progressClose!!.visibility = if (active) View.GONE else View.VISIBLE
@@ -379,7 +379,13 @@ open class MainActivity : Activity() {
         val percent = DownloadQueue.percent(this)
         progressTitle!!.text = if (pending.size == 1) pending[0].title
             else AppLanguage.label(this, "Descargas en curso")
-        progressNumber!!.text = if (pending.size == 1) {
+        val wifiWaiting = pending.count { it.state == DownloadQueueBook.WAITING_WIFI }
+        progressNumber!!.text = if (wifiWaiting == pending.size) {
+            AppLanguage.label(this, "Esperando Wi-Fi · Red no disponible o sin verificar")
+        } else if (wifiWaiting > 0) {
+            "${pending.size - wifiWaiting}" + AppLanguage.label(this, " en curso") +
+                " · $wifiWaiting" + AppLanguage.label(this, " esperando Wi-Fi")
+        } else if (pending.size == 1) {
             AppLanguage.label(this, "En curso") + if (percent > 0) " · $percent%" else ""
         } else {
             pending.size.toString() + AppLanguage.label(this, " en curso") + " · $percent%"
@@ -447,13 +453,16 @@ open class MainActivity : Activity() {
             val item = items.firstOrNull { it.id == row.id } ?: continue
             val waiting = DownloadQueueBook.isPending(item)
             val active = item.state == DownloadQueueBook.ACTIVE
-            if (waiting != row.waiting || active != row.active) {
+            if (waiting != row.waiting || active != row.active ||
+                (item.state == DownloadQueueBook.WAITING_WIFI) != (row.detail.tag == true)) {
                 root.post { if (showQueue) render() }
                 return true
             }
             // Failed and interrupted rows are static: their label comes from the row state.
             if (!waiting) continue
-            val expected = if (!active) AppLanguage.label(this, "En espera")!!
+            val expected = if (item.state == DownloadQueueBook.WAITING_WIFI)
+                AppLanguage.label(this, "Esperando Wi-Fi · Red no disponible o sin verificar")!!
+            else if (!active) AppLanguage.label(this, "En espera")!!
             else if (item.max > 0) "${minOf(100, item.progress * 100 / item.max)} %"
             else "0 %"
             if (row.detail.text.toString() != expected) row.detail.text = expected
@@ -508,11 +517,13 @@ open class MainActivity : Activity() {
             val detail = when {
                 failed -> AppLanguage.label(this, "Error")
                 !waiting -> AppLanguage.label(this, "Interrumpida")
+                item.state == DownloadQueueBook.WAITING_WIFI -> AppLanguage.label(this, "Esperando Wi-Fi · Red no disponible o sin verificar")
                 !active -> AppLanguage.label(this, "En espera")
                 else -> "$percent %"
             }
             val detailView = Ui.rawText(this, detail!!, 12,
                 if (failed) Ui.DANGER else if (active) Ui.CYAN else Ui.MUTED, false)
+            detailView.tag = item.state == DownloadQueueBook.WAITING_WIFI
             info.addView(detailView)
             row.addView(info, infoParams)
             val action = Ui.icon(this, R.drawable.tabler_x, Ui.MUTED)
@@ -1690,6 +1701,24 @@ open class MainActivity : Activity() {
         ask.setOnCheckedChangeListener { _, value -> prefs.edit().putBoolean("ask", value).apply() }
         storage.addView(ask)
         content.addView(storage)
+        Ui.gap(content, this, 24)
+        content.addView(Ui.label(this, "Conexión para descargas", R.drawable.tabler_transfer_vertical, 17, Ui.CYAN))
+        Ui.gap(content, this, 10)
+        val network = Ui.card(this, 16)
+        val wifi = CheckBox(this)
+        wifi.text = AppLanguage.label(this, "Descargar solo con Wi-Fi")
+        wifi.setTextColor(Ui.WHITE)
+        wifi.textSize = 14f
+        wifi.typeface = Ui.typeface(this, false)
+        wifi.buttonTintList = android.content.res.ColorStateList.valueOf(Ui.CYAN)
+        wifi.isChecked = DownloadService.wifiOnly(this)
+        wifi.setOnCheckedChangeListener { _, enabled -> DownloadService.policyChanged(this, enabled) }
+        network.addView(wifi)
+        Ui.gap(network, this, 7)
+        network.addView(Ui.text(this,
+            "Acepta cualquier Wi-Fi, incluso con límite de datos. Sin Wi-Fi verificable, las descargas esperan; una transferencia interrumpida requiere Reintentar.",
+            13, Ui.MUTED, false))
+        content.addView(network)
         Ui.gap(content, this, 24)
         content.addView(Ui.label(this, "Cuenta de Pixiv", R.drawable.tabler_user_circle, 17, Ui.CYAN))
         Ui.gap(content, this, 10)

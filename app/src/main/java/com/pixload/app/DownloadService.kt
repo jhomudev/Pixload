@@ -7,6 +7,11 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.net.Uri
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.os.Handler
+import android.os.Looper
 import android.os.IBinder
 import android.provider.DocumentsContract
 import com.pixload.shared.DownloadNames
@@ -29,6 +34,18 @@ class DownloadService : Service() {
     private val pending = AtomicInteger()
     private val jobs = ConcurrentHashMap<String, Job>()
     private val nameLock = Any()
+    private val main = Handler(Looper.getMainLooper())
+    private val policy = WifiDownloadPolicy()
+    private var activeSlots = 0
+    private var destroyed = false // Main thread; callbacks already posted after unregister must not restart work.
+    private lateinit var connectivity: ConnectivityManager
+    private val networkCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) { main.post { reconcile() } }
+        override fun onLost(network: Network) { main.post { reconcile() } }
+        override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
+            main.post { reconcile() }
+        }
+    }
     private lateinit var notifications: NotificationManager
     @Volatile private var lastFinishedTitle = "Obra de Pixiv"
     @Volatile private var lastFinishedStage = "Descarga completada"
@@ -36,11 +53,18 @@ class DownloadService : Service() {
     override fun onCreate() {
         super.onCreate()
         notifications = getSystemService(NotificationManager::class.java)
+        connectivity = getSystemService(ConnectivityManager::class.java)
+        connectivity.registerDefaultNetworkCallback(networkCallback)
         notifications.createNotificationChannel(NotificationChannel(CHANNEL,
             AppLanguage.label(this, "Descargas"), NotificationManager.IMPORTANCE_LOW))
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == "policy") {
+            if (pending.get() == 0) stopSelf(startId)
+            else reconcile()
+            return START_NOT_STICKY
+        }
         if (intent != null && "cancel" == intent.action) {
             val queueId = intent.getStringExtra("queueId")
             if (queueId.isNullOrEmpty()) cancelAll() else cancelJob(queueId)
@@ -64,15 +88,16 @@ class DownloadService : Service() {
             DownloadStatus.write(this, "Preparando descarga…", "active", 0, 0)
             startForeground(NOTIFICATION, notification())
         }
-        DownloadQueue.markActive(this, job.queueId)
-        queue.execute { run(job) }
-        updateNotification()
+        reconcile()
         return START_NOT_STICKY
     }
 
     /** Each job owns its cancellation flag so cancelling one download leaves the others running. */
     private class Job(val queueId: String, val title: String, val data: JSONObject) {
         @Volatile var cancelled = false
+        @Volatile var wifiLost = false
+        var scheduled = false // Main thread only; waiting jobs never occupy an executor slot.
+        @Volatile var network: Network? = null // Captured before admission; null means unrestricted.
         @Volatile var thread: Thread? = null
         @Volatile var lastNotification = 0L
 
@@ -89,8 +114,10 @@ class DownloadService : Service() {
         job.thread = Thread.currentThread()
         try {
             if (job.cancelled) return
+            ensureAllowed(job)
             notifyState(job, 0)
             val saved = save(job)
+            ensureAllowed(job)
             if (job.cancelled) return
             val label = "Descarga completada: " + job.data.getString("title")
             try {
@@ -108,7 +135,12 @@ class DownloadService : Service() {
             DownloadQueue.finish(this, job.queueId)
         } catch (error: Exception) {
             if (job.cancelled) {
-                DownloadQueue.finish(this, job.queueId)
+                if (jobs[job.queueId] === job) DownloadQueue.finish(this, job.queueId)
+            } else if (job.wifiLost || !allowed()) {
+                DownloadQueue.interrupt(this, job.queueId)
+                lastFinishedTitle = job.title
+                lastFinishedStage = "Wi-Fi perdido · Reintentar"
+                DownloadStatus.write(this, lastFinishedStage, "interrupted", 0, 0)
             } else {
                 DownloadStatus.write(this, "Error: " + error.message, "error", 0, 0)
                 lastFinishedTitle = job.title
@@ -117,12 +149,13 @@ class DownloadService : Service() {
             }
         } finally {
             job.thread = null
-            jobs.remove(job.queueId)
-            if (pending.decrementAndGet() == 0) {
-                notifications.notify(NOTIFICATION, notification())
-                stopForeground(STOP_FOREGROUND_DETACH)
-                stopSelf()
-            } else updateNotification()
+            jobs.remove(job.queueId, job)
+            pending.decrementAndGet()
+            main.post {
+                activeSlots--
+                reconcile()
+                stopIfEmpty()
+            }
         }
     }
 
@@ -131,16 +164,14 @@ class DownloadService : Service() {
         job?.let {
             it.cancelled = true
             it.thread?.interrupt()
+            if (!it.scheduled && jobs.remove(queueId, it)) pending.decrementAndGet()
         }
         DownloadQueue.finish(this, queueId)
         DownloadStatus.write(this, "Descarga cancelada", "cancelled", 0, 0)
         lastFinishedTitle = job?.title ?: lastFinishedTitle
         lastFinishedStage = "Descarga cancelada"
-        updateNotification()
-        if (pending.get() == 0) {
-            stopForeground(STOP_FOREGROUND_DETACH)
-            stopSelf()
-        }
+        reconcile()
+        stopIfEmpty()
     }
 
     private fun cancelAll() {
@@ -149,12 +180,64 @@ class DownloadService : Service() {
         for (job in jobs.values) {
             job.cancelled = true
             job.thread?.interrupt()
+            if (!job.scheduled && jobs.remove(job.queueId, job)) pending.decrementAndGet()
             DownloadQueue.finish(this, job.queueId)
         }
         DownloadStatus.write(this, "Descarga cancelada", "cancelled", 0, 0)
         lastFinishedStage = "Descarga cancelada"
+        reconcile()
+        stopIfEmpty()
+    }
+
+    private fun onlyWifi(): Boolean = getSharedPreferences(WIFI_PREFS, MODE_PRIVATE).getBoolean(WIFI_ONLY, false)
+
+    /** Unknown connectivity is denied only when opted in. Never inspect metered status. */
+    private fun wifiNetwork(): Network? = try {
+        connectivity.activeNetwork?.takeIf { network ->
+            connectivity.getNetworkCapabilities(network)
+                ?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
+        }
+    } catch (_: SecurityException) { null }
+
+    private fun allowed(): Boolean = policy.admit(onlyWifi(), wifiNetwork() != null)
+
+    private fun ensureAllowed(job: Job) {
+        if (job.wifiLost || (onlyWifi() && (job.network == null || wifiNetwork() != job.network))) {
+            job.wifiLost = true
+            throw IOException("Wi-Fi perdido · Reintentar")
+        }
+        if (job.cancelled || Thread.currentThread().isInterrupted) throw IOException("Descarga interrumpida")
+    }
+
+    /** Serialized on the main thread: admit only three workers and retain the other jobs in memory. */
+    private fun reconcile() {
+        if (destroyed) return
+        val restricted = onlyWifi()
+        val wifi = if (restricted) wifiNetwork() else null
+        val admitted = policy.admit(restricted, wifi != null)
+        // Queue order is the admission order; ConcurrentHashMap.values has no FIFO guarantee.
+        for (item in DownloadQueue.items(this)) {
+            val job = jobs[item.id] ?: continue
+            if (job.cancelled) continue
+            if (!admitted || (restricted && job.scheduled && job.network != wifi)) {
+                if (job.thread != null) {
+                    job.wifiLost = true
+                    job.thread?.interrupt()
+                } else if (!job.scheduled) DownloadQueue.waitForWifi(this, job.queueId)
+            } else if (!job.scheduled && activeSlots < MAX_ACTIVE) {
+                job.network = wifi
+                job.scheduled = true
+                activeSlots++
+                DownloadQueue.markActive(this, job.queueId)
+                queue.execute { run(job) }
+            }
+        }
         updateNotification()
+    }
+
+    private fun stopIfEmpty() {
         if (pending.get() == 0) {
+            updateNotification()
             stopForeground(STOP_FOREGROUND_DETACH)
             stopSelf()
         }
@@ -176,7 +259,7 @@ class DownloadService : Service() {
         var firstFile: Uri? = null
         var lastMime: String? = null
         for (i in 0 until files.length()) {
-            if (job.cancelled || Thread.currentThread().isInterrupted) throw IOException("Descarga interrumpida")
+            ensureAllowed(job)
             val file = files.getJSONObject(i)
             job.pageIndex = i
             job.pageCount = files.length()
@@ -190,11 +273,13 @@ class DownloadService : Service() {
             val name = created.first
             val output = created.second
             try {
+                ensureAllowed(job)
                 if (file.has("frames")) {
                     convert(job, file, output)
                 } else if (file.has("text")) {
                     contentResolver.openOutputStream(output, "wt").use { stream ->
                         if (stream == null) throw IOException("No se pudo escribir $name")
+                        ensureAllowed(job)
                         stream.write(file.getString("text").toByteArray(StandardCharsets.UTF_8))
                     }
                 } else {
@@ -203,6 +288,7 @@ class DownloadService : Service() {
                         download(job, file.getString("url"), stream)
                     }
                 }
+                ensureAllowed(job)
                 val renamed = DocumentsContract.renameDocument(contentResolver, output, name)
                     ?: throw IOException("No se pudo finalizar $name")
                 lastFile = renamed
@@ -210,7 +296,8 @@ class DownloadService : Service() {
                 lastMime = mime(name)
                 notifyState(job, jobPercent(job, 100))
             } catch (error: Exception) {
-                DocumentsContract.deleteDocument(contentResolver, output)
+                try { DocumentsContract.deleteDocument(contentResolver, output) }
+                catch (cleanup: Exception) { error.addSuppressed(cleanup) }
                 throw error
             }
         }
@@ -236,7 +323,7 @@ class DownloadService : Service() {
             job.phaseSpan = 50
             val frames = file.getJSONArray("frames")
             val progress = UgoiraConverter.Progress { done, total ->
-                if (job.cancelled || Thread.currentThread().isInterrupted) throw IOException("Conversión interrumpida")
+                ensureAllowed(job)
                 val now = System.currentTimeMillis()
                 if (now - job.lastNotification > 500 || done == total) {
                     job.lastNotification = now
@@ -260,7 +347,7 @@ class DownloadService : Service() {
                         while (true) {
                             val count = input.read(bytes)
                             if (count == -1) break
-                            if (job.cancelled || Thread.currentThread().isInterrupted) throw IOException("Descarga interrumpida")
+                            ensureAllowed(job)
                             target.write(bytes, 0, count)
                         }
                     }
@@ -274,8 +361,10 @@ class DownloadService : Service() {
 
     @Throws(IOException::class)
     private fun download(job: Job, url: String, output: OutputStream) {
-        val source = PixivClient.open(url)
+        ensureAllowed(job)
+        val source = job.network?.let { PixivClient.open(url, it) } ?: PixivClient.open(url)
         try {
+            ensureAllowed(job)
             if (source.responseCode != 200) throw IOException("Pixiv respondió con HTTP " + source.responseCode)
             val length = source.contentLengthLong
             source.inputStream.use { input ->
@@ -283,8 +372,8 @@ class DownloadService : Service() {
                 var read = 0L
                 while (true) {
                     val count = input.read(bytes)
+                    ensureAllowed(job)
                     if (count == -1) break
-                    if (job.cancelled || Thread.currentThread().isInterrupted) throw IOException("Descarga interrumpida")
                     output.write(bytes, 0, count)
                     read += count
                     val now = System.currentTimeMillis()
@@ -379,7 +468,14 @@ class DownloadService : Service() {
         }
         val percent = DownloadQueue.percent(this)
         val single = running.size == 1
-        val detail = if (single) {
+        val wifiWaiting = running.count { it.state == DownloadQueueBook.WAITING_WIFI }
+        val waitingWifi = wifiWaiting == running.size
+        val detail = if (waitingWifi) {
+            AppLanguage.label(this, "Esperando Wi-Fi · Red no disponible o sin verificar")!!
+        } else if (wifiWaiting > 0) {
+            "${running.size - wifiWaiting}" + AppLanguage.label(this, " en curso") +
+                " · $wifiWaiting" + AppLanguage.label(this, " esperando Wi-Fi")
+        } else if (single) {
             AppLanguage.label(this, "En curso") + " · " + percent + " %"
         } else {
             running.size.toString() + AppLanguage.label(this, " en curso") + " · " + percent + " %"
@@ -387,7 +483,7 @@ class DownloadService : Service() {
         builder.setContentTitle(if (single) running[0].title else AppLanguage.label(this, "Descargas en curso"))
             .setContentText(AppLanguage.stage(this, detail))
             .setOngoing(true)
-            .setProgress(100, percent, false)
+            .setProgress(100, percent, waitingWifi)
         val cancel = Intent(this, DownloadService::class.java).setAction("cancel")
         val action = PendingIntent.getService(this, 1, cancel, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         builder.addAction(R.drawable.tabler_x, AppLanguage.label(this, "Cancelar"), action)
@@ -397,6 +493,8 @@ class DownloadService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        destroyed = true
+        connectivity.unregisterNetworkCallback(networkCallback)
         queue.shutdownNow()
         super.onDestroy()
     }
@@ -405,6 +503,16 @@ class DownloadService : Service() {
         private const val CHANNEL = "pixload_downloads"
         private const val NOTIFICATION = 100
         private const val MAX_ACTIVE = 3
+        private const val WIFI_PREFS = "wifi_download"
+        private const val WIFI_ONLY = "only_wifi"
+
+        @JvmStatic fun policyChanged(context: android.content.Context, enabled: Boolean) {
+            context.getSharedPreferences(WIFI_PREFS, MODE_PRIVATE).edit().putBoolean(WIFI_ONLY, enabled).apply()
+            context.startService(Intent(context, DownloadService::class.java).setAction("policy"))
+        }
+
+        @JvmStatic fun wifiOnly(context: android.content.Context): Boolean =
+            context.getSharedPreferences(WIFI_PREFS, MODE_PRIVATE).getBoolean(WIFI_ONLY, false)
 
         /** Cancels a single queued or running job; the rest of the queue keeps going. */
         @JvmStatic fun cancel(context: android.content.Context, queueId: String) {

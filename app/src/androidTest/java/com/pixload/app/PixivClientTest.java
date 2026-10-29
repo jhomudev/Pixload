@@ -1,6 +1,10 @@
 package com.pixload.app;
 
 import androidx.test.ext.junit.runners.AndroidJUnit4;
+import androidx.test.platform.app.InstrumentationRegistry;
+import android.content.Context;
+import android.net.ConnectivityManager;
+import android.net.Network;
 
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -8,6 +12,7 @@ import org.junit.runner.RunWith;
 import java.io.IOException;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.fail;
 
 @RunWith(AndroidJUnit4.class)
@@ -18,6 +23,28 @@ public class PixivClientTest {
         assertLoadRejected("https://www.pixiv.net/users/123", "Enlace de obra no reconocido.");
         assertOriginRejected("https://fakepixiv.net/image.jpg");
         assertOriginRejected("http://i.pximg.net/image.jpg");
+    }
+
+    @Test public void boundTransferPreservesOriginChecksAndRequestHeaders() throws Exception {
+        ConnectivityManager manager = (ConnectivityManager) InstrumentationRegistry.getInstrumentation()
+                .getTargetContext().getSystemService(Context.CONNECTIVITY_SERVICE);
+        Network network = manager.getActiveNetwork();
+        org.junit.Assume.assumeNotNull(network);
+        try {
+            PixivClient.open("https://fakepixiv.net/image.jpg", network);
+            fail("Expected origin rejection before connection");
+        } catch (IOException expected) {
+            assertEquals("Origen de archivo no permitido.", expected.getMessage());
+        }
+        java.net.HttpURLConnection image = PixivClient.open("https://i.pximg.net/image.jpg", network);
+        try {
+            assertEquals("https://www.pixiv.net/", image.getRequestProperty("Referer"));
+            assertNotNull(image.getRequestProperty("User-Agent"));
+            assertEquals(null, image.getRequestProperty("Cookie"));
+            assertEquals(false, image.getInstanceFollowRedirects());
+        } finally {
+            image.disconnect();
+        }
     }
 
     @Test public void keepsRejectionPrecedenceAndImageExtensions() throws Exception {

@@ -1,5 +1,6 @@
 package com.pixload.app
 
+import android.net.Network
 import android.net.Uri
 import android.webkit.CookieManager
 import com.pixload.shared.PixivOrigins
@@ -130,11 +131,18 @@ internal class PixivClient private constructor() {
 
         @JvmStatic
         @Throws(IOException::class)
-        fun open(address: String): HttpURLConnection {
+        fun open(address: String): HttpURLConnection = openChecked(address, null)
+
+        /** Only transfer callers supply a Network; a stale Wi-Fi never falls back to the default route. */
+        @JvmStatic
+        @Throws(IOException::class)
+        fun open(address: String, network: Network): HttpURLConnection = openChecked(address, network)
+
+        private fun openChecked(address: String, network: Network?): HttpURLConnection {
             val url = URL(address)
             val host = url.host.lowercase(Locale.getDefault())
             if (!PixivOrigins.isAllowed(url.protocol, host)) throw IOException("Origen de archivo no permitido.")
-            val connection = url.openConnection() as HttpURLConnection
+            val connection = (if (network == null) url.openConnection() else network.openConnection(url)) as HttpURLConnection
             connection.connectTimeout = 15000
             connection.readTimeout = 30000
             connection.instanceFollowRedirects = false

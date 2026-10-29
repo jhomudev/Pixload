@@ -8,7 +8,7 @@ import org.json.JSONObject
  * Pure queue bookkeeping. It has no Android or JSON dependencies on purpose so the limit,
  * ordering and state transitions can be covered by JVM tests.
  *
- * Only queued and active jobs count against the limit; finished, cancelled and interrupted
+ * Only queued, waiting and active jobs count against the limit; finished, cancelled and interrupted
  * jobs release their slot immediately.
  */
 internal class DownloadQueueBook {
@@ -100,10 +100,11 @@ internal class DownloadQueueBook {
         const val LIMIT = 5
         const val QUEUED = "queued"
         const val ACTIVE = "active"
+        const val WAITING_WIFI = "waiting_wifi"
         const val INTERRUPTED = "interrupted"
         const val ERROR = "error"
 
-        @JvmStatic fun isPending(item: Item): Boolean = item.state == QUEUED || item.state == ACTIVE
+        @JvmStatic fun isPending(item: Item): Boolean = item.state == QUEUED || item.state == WAITING_WIFI || item.state == ACTIVE
 
         /**
          * Progress of the whole work: [index] finished pages plus [fraction] of the page in
@@ -210,6 +211,17 @@ internal object DownloadQueue {
     @JvmStatic @Synchronized fun markActive(context: Context, id: String) {
         val queue = load(context)
         if (queue.state(id, DownloadQueueBook.ACTIVE, 0, 0)) persist(context, queue)
+    }
+
+    @JvmStatic @Synchronized fun waitForWifi(context: Context, id: String) {
+        val queue = load(context)
+        if (queue.state(id, DownloadQueueBook.WAITING_WIFI, 0, 0)) persist(context, queue)
+    }
+
+    @JvmStatic @Synchronized fun interrupt(context: Context, id: String) {
+        val queue = load(context)
+        if (queue.state(id, DownloadQueueBook.INTERRUPTED, 0, 0)) persist(context, queue)
+        clearThumbnailsIfFinished(context, queue)
     }
 
     /** Progress stays in memory; the persisted snapshot only exists for interruption recovery. */
