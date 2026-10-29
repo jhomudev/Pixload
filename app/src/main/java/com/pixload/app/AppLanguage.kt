@@ -242,6 +242,7 @@ internal object AppLanguage {
             "Cancelar descarga" -> "Cancel download"
             "Quitar" -> "Remove"
             "Reintentar" -> "Retry"
+            "Reintentando…" -> "Retrying…"
             "La carpeta ya no está disponible. Selecciona la carpeta de nuevo y descarga la obra desde su enlace." ->
                 "The folder is unavailable. Select it again and download the work from its link."
             "La obra o las páginas seleccionadas ya no están disponibles. Abre la obra de nuevo." ->

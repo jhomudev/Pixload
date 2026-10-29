@@ -86,6 +86,7 @@ open class MainActivity : Activity() {
     private var previewNoticeWarning = true
     private var tab = 0
     private var showQueue = false
+    private val retryProgress = RetryProgress()
     private var loading = false
     private var loggedIn = false
     private var downloadAfterFolderPick = false
@@ -541,8 +542,10 @@ open class MainActivity : Activity() {
             card.addView(row)
             if (!waiting && item.retry != null) {
                 Ui.gap(card, this, 8)
-                card.addView(Ui.button(this, "Reintentar", R.drawable.tabler_download, false,
-                    Runnable { retryDownload(item.id) }))
+                val retryButton = Ui.button(this, "Reintentar", R.drawable.tabler_download, false, Runnable {})
+                if (retryProgress.active(item.id)) setRetryButtonBusy(retryButton, true)
+                retryButton.setOnClickListener { retryDownload(item.id, retryButton) }
+                card.addView(retryButton)
             }
             var bar: ProgressBar? = null
             if (active) {
@@ -1943,14 +1946,30 @@ open class MainActivity : Activity() {
         }
     }
 
+    private fun setRetryButtonBusy(button: TextView, busy: Boolean) {
+        button.text = AppLanguage.label(this, if (busy) "Reintentando…" else "Reintentar")
+        Ui.withIcon(button, R.drawable.tabler_download, Ui.CYAN)
+        button.isEnabled = !busy
+        button.alpha = if (busy) .55f else 1f
+    }
+
+    private fun finishRetry(id: String, button: TextView) {
+        retryProgress.end(id)
+        if (showQueue && !isFinishing && !isDestroyed &&
+            (DownloadQueue.pending(this).any { it.id == id } || !button.isAttachedToWindow)) render()
+        else if (button.isAttachedToWindow) setRetryButtonBusy(button, false)
+    }
+
     /** Retry never changes the current preview or its selection. Failed preflight leaves the row intact. */
-    private fun retryDownload(id: String) {
+    private fun retryDownload(id: String, button: TextView) {
         val snapshot = DownloadQueue.items(this).firstOrNull { it.id == id &&
             !DownloadQueueBook.isPending(it) }?.retry ?: return
         if (DownloadQueue.isFull(this)) {
             Toast.makeText(this, AppLanguage.label(this, "Máximo 5 descargas en la cola."), Toast.LENGTH_SHORT).show()
             return
         }
+        if (!retryProgress.begin(id)) return
+        setRetryButtonBusy(button, true)
         executor.execute {
             try {
                 val folder = Uri.parse(snapshot.folder)
@@ -1983,27 +2002,33 @@ open class MainActivity : Activity() {
                     finally { connection.disconnect() }
                 }
                 runOnUiThread {
-                    if (isFinishing || isDestroyed || DownloadQueue.items(this).none {
-                        it.id == id && it.retry == snapshot && !DownloadQueueBook.isPending(it) }) return@runOnUiThread
-                    if (DownloadQueue.isFull(this)) {
-                        Toast.makeText(this, AppLanguage.label(this, "Máximo 5 descargas en la cola."), Toast.LENGTH_SHORT).show()
-                        return@runOnUiThread
-                    }
-                    val duplicate = try { GalleryStore.hasCompleted(this, refreshed.id, snapshot.folder) }
-                    catch (error: IllegalStateException) {
-                        Toast.makeText(this, AppLanguage.error(this, error.message), Toast.LENGTH_LONG).show()
-                        return@runOnUiThread
-                    }
-                    if (duplicate) AlertDialog.Builder(this, AlertDialog.THEME_DEVICE_DEFAULT_DARK)
-                        .setTitle(R.string.duplicate_title).setMessage(R.string.duplicate_message)
-                        .setNegativeButton(R.string.cancel, null)
-                        .setPositiveButton(R.string.continue_download) { _, _ -> queueSelection(refreshed, snapshot, true, retry = true) }
-                        .show()
-                    else queueSelection(refreshed, snapshot, false, retry = true)
+                    try {
+                        if (isFinishing || isDestroyed || DownloadQueue.items(this).none {
+                            it.id == id && it.retry == snapshot && !DownloadQueueBook.isPending(it) }) return@runOnUiThread
+                        if (DownloadQueue.isFull(this)) {
+                            Toast.makeText(this, AppLanguage.label(this, "Máximo 5 descargas en la cola."), Toast.LENGTH_SHORT).show()
+                            return@runOnUiThread
+                        }
+                        val duplicate = try { GalleryStore.hasCompleted(this, refreshed.id, snapshot.folder) }
+                        catch (error: IllegalStateException) {
+                            Toast.makeText(this, AppLanguage.error(this, error.message), Toast.LENGTH_LONG).show()
+                            return@runOnUiThread
+                        }
+                        if (duplicate) AlertDialog.Builder(this, AlertDialog.THEME_DEVICE_DEFAULT_DARK)
+                            .setTitle(R.string.duplicate_title).setMessage(R.string.duplicate_message)
+                            .setNegativeButton(R.string.cancel, null)
+                            .setPositiveButton(R.string.continue_download) { _, _ -> queueSelection(refreshed, snapshot, true, retry = true) }
+                            .show()
+                        else queueSelection(refreshed, snapshot, false, retry = true)
+                    } finally { finishRetry(id, button) }
                 }
             } catch (error: Exception) {
-                runOnUiThread { if (!isFinishing && !isDestroyed)
-                    Toast.makeText(this, AppLanguage.error(this, error.message), Toast.LENGTH_LONG).show() }
+                runOnUiThread {
+                    try {
+                        if (!isFinishing && !isDestroyed)
+                            Toast.makeText(this, AppLanguage.error(this, error.message), Toast.LENGTH_LONG).show()
+                    } finally { finishRetry(id, button) }
+                }
             }
         }
     }

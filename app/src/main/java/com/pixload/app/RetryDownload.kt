@@ -1,5 +1,13 @@
 package com.pixload.app
 
+/** Activity-local preflight feedback; it never changes the persisted queue. Main thread only. */
+internal class RetryProgress {
+    private val active = HashSet<String>()
+    fun begin(id: String): Boolean = active.add(id)
+    fun end(id: String) { active.remove(id) }
+    fun active(id: String): Boolean = id in active
+}
+
 /** Selection only: never persist Pixiv URLs, novel text, frames or a byte offset for retry. */
 internal data class RetryDownload(
     val id: String, val type: String, val folder: String, val pages: List<Int>,
