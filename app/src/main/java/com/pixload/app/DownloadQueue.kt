@@ -118,6 +118,9 @@ internal class DownloadQueueBook {
     }
 }
 
+/** Display newest submissions first without changing the FIFO order used by the service. */
+internal fun queueDisplayItems(items: List<DownloadQueueBook.Item>): List<DownloadQueueBook.Item> = items.asReversed()
+
 /**
  * Process-wide queue shared by [MainActivity] and [DownloadService], persisted only on state
  * transitions so progress ticks never touch storage.

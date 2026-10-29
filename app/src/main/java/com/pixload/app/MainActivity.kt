@@ -460,7 +460,7 @@ open class MainActivity : Activity() {
 
     /** The queue screen refreshes in place so thumbnails are not reloaded every tick. */
     private fun refreshQueue(): Boolean {
-        val items = DownloadQueue.items(this)
+        val items = queueDisplayItems(DownloadQueue.items(this))
         // A finished job replaced by a new one keeps the row count but not the rows.
         if (items.size != queueRows.size || items.map { it.id } != queueRows.map { it.id }) {
             root.post { if (showQueue) render() }
@@ -494,7 +494,7 @@ open class MainActivity : Activity() {
         Ui.gap(content, this, 6)
         content.addView(Ui.text(this, "Hasta 3 a la vez · máximo 5 en cola", 14, Ui.MUTED, false))
         Ui.gap(content, this, 20)
-        val items = DownloadQueue.items(this)
+        val items = queueDisplayItems(DownloadQueue.items(this))
         if (items.isEmpty()) {
             val empty = Ui.card(this, 18)
             empty.addView(Ui.label(this, "No hay descargas en curso", R.drawable.tabler_transfer_vertical, 18, Ui.CYAN))
