@@ -1052,12 +1052,31 @@ open class MainActivity : Activity() {
     private fun importLastDownload() {
         try { GalleryStore.importLast(this) }
         catch (_: IllegalStateException) { /* The gallery displays the storage error instead of replacing history. */ return }
+        syncImportedGallery()
+    }
+
+    /**
+     * Picks up downloads completed while the echoed listing is cached. Only entries Android can
+     * still resolve are added, so history hidden by the first validation does not come back.
+     */
+    private fun syncImportedGallery() {
         val cached = galleryCache ?: return
-        try {
-            val known = cached.mapTo(HashSet()) { it.uri }
-            val added = GalleryStore.list(this).filter { it.uri !in known }
-            if (added.isNotEmpty()) galleryCache = added + cached
-        } catch (_: IllegalStateException) { /* Keep the validated list rather than replacing it with an error. */ }
+        val known = cached.mapTo(HashSet()) { it.uri }
+        galleryIO.execute {
+            val added = try {
+                GalleryStore.list(this).filter { it.uri !in known && GalleryDocuments.isAvailable(contentResolver, it) }
+            } catch (_: IllegalStateException) { return@execute }
+            if (added.isEmpty()) return@execute
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                val current = galleryCache ?: return@runOnUiThread
+                val latest = current.mapTo(HashSet()) { it.uri }
+                val fresh = added.filter { it.uri !in latest }
+                if (fresh.isEmpty()) return@runOnUiThread
+                galleryCache = fresh + current
+                if (tab == 2 && galleryEntry == null) render()
+            }
+        }
     }
 
     private fun shareGalleryEntry(entry: GalleryStore.Entry) {
@@ -1543,9 +1562,6 @@ open class MainActivity : Activity() {
         languages.addView(languageChoices)
         content.addView(languages)
         Ui.gap(content, this, 24)
-        Ui.gap(content, this, 6)
-        content.addView(Ui.text(this, "Personaliza cómo se guardan tus obras de Pixiv.", 14, Ui.MUTED, false))
-        Ui.gap(content, this, 22)
         content.addView(Ui.label(this, "Ubicación de descargas", R.drawable.tabler_folder, 17, Ui.CYAN))
         Ui.gap(content, this, 10)
         val storage = Ui.card(this, 16)
