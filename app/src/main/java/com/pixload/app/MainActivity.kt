@@ -760,9 +760,12 @@ open class MainActivity : Activity() {
                 } else {
                     val direction = if (event.rawX < swipeStartX) 1 else -1
                     if (galleryFullscreen) {
-                        // An image with no prepared viewer must not abruptly replace the screen.
-                        if (!isGalleryImage(galleryItems!![galleryIndex]) ||
-                            !isGalleryImage(galleryItems!![galleryIndex + direction])) selectGalleryItem(galleryIndex + direction)
+                        val items = galleryItems
+                        val target = if (items == null) null else GallerySwipe.target(galleryIndex, direction, items.size)
+                        if (items == null || target == null) {
+                            // A reversal at the first or last page keeps the current image.
+                        } else if (!isGalleryImage(items[galleryIndex]) || !isGalleryImage(items[target]))
+                            selectGalleryItem(target)
                         else slideOverlay?.let { overlay ->
                             overlay.post {
                                 if (slideOverlay === overlay && (slideCurrent?.width ?: 0) > 0) {
