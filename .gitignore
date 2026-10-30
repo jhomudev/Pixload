@@ -6,6 +6,7 @@ build/
 app/build/
 *.iml
 .engram/
+.gentle-ai-default-agent.json
 *.apk
 *.aab
 *.keystore
