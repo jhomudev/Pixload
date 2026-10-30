@@ -1,6 +1,9 @@
 package com.pixload.app
 
 import android.Manifest
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
+import android.animation.ValueAnimator
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.ClipData
@@ -22,7 +25,6 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
-import android.view.animation.DecelerateInterpolator
 import android.view.inputmethod.InputMethodManager
 import android.webkit.CookieManager
 import android.widget.CheckBox
@@ -64,9 +66,10 @@ open class MainActivity : Activity() {
     private val pageChecks = ArrayList<CheckBox>()
     private val queueRows = ArrayList<QueueRow>()
     private lateinit var root: LinearLayout
-    private var fadeNextTab = false
     private lateinit var content: LinearLayout
     private lateinit var bottom: LinearLayout
+    private var navigation: LinearLayout? = null
+    private var normalShell = false
     private var scroll: ScrollView? = null
     private var link: EditText? = null
     private var status: TextView? = null
@@ -109,17 +112,28 @@ open class MainActivity : Activity() {
     private var galleryIndex = 0
     private var galleryVideo: VideoView? = null
     private var fullscreenMedia: View? = null
+    private var fullscreenGestureControls: List<View> = emptyList()
     private var galleryFullscreen = false
+    private var fullscreenControlsVisible = false
     private var galleryScrollY = 0
     private var galleryListRendered = false
     private var galleryScrollPending = false
     private var gallerySearch = ""
-    private var galleryType = GalleryType.ALL
+    private var galleryTypes = emptySet<GalleryType>()
     private var galleryOrder = GalleryOrder.NEWEST
     private var swipeStartX = 0f
     private var swipeStartY = 0f
     private var swipeEligible = false
     private var swiping = false
+    private var slideOverlay: FrameLayout? = null
+    private var slideCurrent: LinearLayout? = null
+    private var slideNeighbor: LinearLayout? = null
+    private var slideDirection = 0
+    private var slideSettling = false
+    private var slideAdvance = false
+    private var pendingSlideDirection = 0
+    private val slidePrepared = HashMap<Int, LinearLayout>()
+    private var slideReuse: Pair<Uri, LinearLayout>? = null
     private var lastGalleryStatusUri = ""
 
     override fun attachBaseContext(base: Context) {
@@ -148,7 +162,8 @@ open class MainActivity : Activity() {
             galleryIndex = state.getInt("galleryIndex", 0)
             galleryScrollY = state.getInt("galleryScrollY", 0)
             gallerySearch = state.getString("gallerySearch", "") ?: ""
-            galleryType = GalleryType.entries.getOrNull(state.getInt("galleryType")) ?: GalleryType.ALL
+            galleryTypes = state.getIntegerArrayList("galleryTypes")?.mapNotNull { GalleryType.entries.getOrNull(it) }
+                ?.filter { it != GalleryType.ALL }?.toSet() ?: emptySet()
             galleryOrder = GalleryOrder.entries.getOrNull(state.getInt("galleryOrder", GalleryOrder.NEWEST.ordinal)) ?: GalleryOrder.NEWEST
             galleryFullscreen = state.getBoolean("galleryFullscreen")
             try { galleryEntry = GalleryStore.find(this, state.getString("galleryEntry", "")) }
@@ -179,7 +194,7 @@ open class MainActivity : Activity() {
         if (galleryListRendered && !galleryScrollPending && scroll != null) galleryScrollY = scroll!!.scrollY
         state.putInt("galleryScrollY", galleryScrollY)
         state.putString("gallerySearch", gallerySearch)
-        state.putInt("galleryType", galleryType.ordinal)
+        state.putIntegerArrayList("galleryTypes", ArrayList(galleryTypes.map { it.ordinal }))
         state.putInt("galleryOrder", galleryOrder.ordinal)
         state.putBoolean("galleryFullscreen", galleryFullscreen)
         super.onSaveInstanceState(state)
@@ -204,39 +219,54 @@ open class MainActivity : Activity() {
     }
 
     private fun render() {
+        clearSlide()
+        slidePrepared.clear()
         if (galleryListRendered && !galleryScrollPending && scroll != null) galleryScrollY = scroll!!.scrollY
         galleryListRendered = false
         galleryScrollPending = false
         images.clear()
         galleryImages.clear()
-        selectionDownloadButton = null
         galleryVideo?.let { it.stopPlayback(); galleryVideo = null }
+        val fullscreen = galleryFullscreen && tab == 2 && galleryEntry != null
+        window.decorView.systemUiVisibility = if (fullscreen)
+            View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
+                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
+                View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+        else 0
+        if (!::root.isInitialized || normalShell != !fullscreen) {
+            root = Ui.column(this)
+            root.setBackgroundColor(Ui.BACK)
+            setContentView(root)
+            normalShell = !fullscreen
+            if (!fullscreen) {
+                header()
+                bottom = Ui.column(this)
+                bottom.setPadding(Ui.dp(this, 20f), Ui.dp(this, 4f), Ui.dp(this, 20f), Ui.dp(this, 12f))
+                root.addView(bottom)
+                navigation()
+            }
+        }
+        if (fullscreen) {
+            root.removeAllViews()
+            scroll = null
+            fullscreenGallery()
+            return
+        }
+        scroll?.let { root.removeView(it) }
+        selectionDownloadButton = null
+        selectionCount = null
+        link = null
+        status = null
+        pageChecks.clear()
+        progressPanel?.let { bottom.removeView(it) }
         progressTitle = null
         progressNumber = null
         progressClose = null
         progressOpen = null
         progressBar = null
         progressPanel = null
-        queueDot = null
-        queueAction = null
-        val fade = fadeNextTab
-        fadeNextTab = false
-        root = Ui.column(this)
-        root.setBackgroundColor(Ui.BACK)
-        if (fade) root.alpha = .92f
-        setContentView(root)
-        if (fade) root.animate().alpha(1f).setDuration(260).setInterpolator(DecelerateInterpolator()).start()
-        window.decorView.systemUiVisibility = if (galleryFullscreen)
-            View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
-                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
-                View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-        else 0
-        if (galleryFullscreen && tab == 2 && galleryEntry != null) {
-            scroll = null
-            fullscreenGallery()
-            return
-        }
-        header()
+        val nav = navigation!!
+        bottom.removeViews(0, bottom.indexOfChild(nav))
         val page = ScrollView(this)
         scroll = page
         page.setOnScrollChangeListener { _, _, _, _, _ ->
@@ -248,10 +278,7 @@ open class MainActivity : Activity() {
         content = Ui.column(this)
         content.setPadding(Ui.dp(this, 20f), Ui.dp(this, 20f), Ui.dp(this, 20f), Ui.dp(this, 24f))
         page.addView(content)
-        root.addView(page, LinearLayout.LayoutParams(-1, 0, 1f))
-        bottom = Ui.column(this)
-        bottom.setPadding(Ui.dp(this, 20f), Ui.dp(this, 4f), Ui.dp(this, 20f), Ui.dp(this, 12f))
-        root.addView(bottom)
+        root.addView(page, 1, LinearLayout.LayoutParams(-1, 0, 1f))
         when {
             showQueue -> queueScreen()
             tab == 0 -> home()
@@ -259,10 +286,14 @@ open class MainActivity : Activity() {
             tab == 2 -> gallery()
             else -> settings()
         }
-        navigation()
+        updateNavigation()
         refreshProgress()
-        page.post { images.loadVisible() }
-        page.post { galleryImages.loadVisible() }
+        page.post {
+            if (scroll === page) {
+                images.loadVisible()
+                galleryImages.loadVisible()
+            }
+        }
     }
 
     private fun header() {
@@ -332,9 +363,24 @@ open class MainActivity : Activity() {
             nav.addView(item, LinearLayout.LayoutParams(0, -2, 1f))
         }
         bottom.addView(nav)
+        navigation = nav
+    }
+
+    private fun updateNavigation() {
+        val nav = navigation ?: return
+        for (i in 0 until nav.childCount) {
+            val item = nav.getChildAt(i) as LinearLayout
+            val color = if (tab == i) Ui.CYAN else Ui.MUTED
+            (item.getChildAt(0) as ImageView).imageTintList = android.content.res.ColorStateList.valueOf(color)
+            (item.getChildAt(1) as TextView).apply {
+                setTextColor(color)
+                typeface = Ui.typeface(this@MainActivity, tab == i)
+            }
+        }
     }
 
     private fun refreshProgress() {
+        if (!normalShell) return // The immersive gallery has no bottom bar; rebuild it on exit.
         updateDownloadButton()
         val pending = DownloadQueue.pending(this)
         queueDot?.visibility = if (pending.isEmpty()) View.GONE else View.VISIBLE
@@ -673,18 +719,22 @@ open class MainActivity : Activity() {
             swipeStartX = event.rawX
             swipeStartY = event.rawY
             swiping = false
-            val area = if (galleryFullscreen) fullscreenMedia else scroll
+            val area = if (galleryFullscreen) (if (slideSettling) slideOverlay else fullscreenMedia) else scroll
             swipeEligible = area != null && (if (galleryFullscreen) (galleryItems?.size ?: 0) > 1 else galleryEntry == null)
                 && containsTouch(area, event) && !touchesGestureControl(area, event)
+                && (!galleryFullscreen || fullscreenGestureControls.none { containsTouch(it, event) })
         } else if (action == MotionEvent.ACTION_MOVE && swipeEligible && !swiping) {
             val dx = event.rawX - swipeStartX
             val dy = event.rawY - swipeStartY
             val slop = ViewConfiguration.get(this).scaledTouchSlop
+            val direction = if (dx < 0) 1 else -1
+            val nextIndex = galleryIndex + (if (slideSettling && slideAdvance) slideDirection else 0) + direction
+            val imageDrag = galleryFullscreen && slideOverlay != null &&
+                galleryItems?.getOrNull(nextIndex)?.let(::isGalleryImage) == true
+            val threshold = if (imageDrag) slop else maxOf(Ui.dp(this, 56f), slop * 3)
             if (kotlin.math.abs(dy) > slop && kotlin.math.abs(dy) > kotlin.math.abs(dx)) swipeEligible = false
-            else if (kotlin.math.abs(dx) > maxOf(Ui.dp(this, 56f), slop * 3)
-                && kotlin.math.abs(dx) > kotlin.math.abs(dy) * 1.4f) {
-                val direction = if (dx < 0) 1 else -1
-                val canMove = if (galleryFullscreen) galleryIndex + direction >= 0 && galleryIndex + direction < (galleryItems?.size ?: 0)
+            else if (kotlin.math.abs(dx) > threshold && kotlin.math.abs(dx) > kotlin.math.abs(dy) * 1.4f) {
+                val canMove = if (galleryFullscreen) nextIndex >= 0 && nextIndex < (galleryItems?.size ?: 0)
                     else tab + direction in 0..3
                 if (canMove) {
                     swiping = true
@@ -692,16 +742,42 @@ open class MainActivity : Activity() {
                     cancel.action = MotionEvent.ACTION_CANCEL
                     super.dispatchTouchEvent(cancel)
                     cancel.recycle()
+                    if (galleryFullscreen && !slideSettling && slideOverlay != null &&
+                        isGalleryImage(galleryItems!![galleryIndex + direction])) startSlide(direction)
                 } else swipeEligible = false
             }
         }
         if (swiping) {
+            if (action == MotionEvent.ACTION_MOVE && slideNeighbor != null && !slideSettling)
+                moveSlide(event.rawX - swipeStartX)
             if (action == MotionEvent.ACTION_UP) {
-                val direction = if (event.rawX < swipeStartX) 1 else -1
-                if (galleryFullscreen) selectGalleryItem(galleryIndex + direction) else switchTab(tab + direction)
+                if (slideSettling) {
+                    // Let the first transition complete; queue this gesture for the newly laid-out image.
+                    pendingSlideDirection = if (event.rawX < swipeStartX) 1 else -1
+                } else if (slideNeighbor != null) {
+                    moveSlide(event.rawX - swipeStartX)
+                    settleSlide(kotlin.math.abs(slideCurrent!!.translationX) > slideCurrent!!.width * .22f)
+                } else {
+                    val direction = if (event.rawX < swipeStartX) 1 else -1
+                    if (galleryFullscreen) {
+                        // An image with no prepared viewer must not abruptly replace the screen.
+                        if (!isGalleryImage(galleryItems!![galleryIndex]) ||
+                            !isGalleryImage(galleryItems!![galleryIndex + direction])) selectGalleryItem(galleryIndex + direction)
+                        else slideOverlay?.let { overlay ->
+                            overlay.post {
+                                if (slideOverlay === overlay && (slideCurrent?.width ?: 0) > 0) {
+                                    startSlide(direction)
+                                    if (slideNeighbor != null) settleSlide(true)
+                                }
+                            }
+                        }
+                    } else switchTab(tab + direction)
+                }
                 swiping = false
                 swipeEligible = false
             } else if (action == MotionEvent.ACTION_CANCEL) {
+                if (slideNeighbor != null && !slideSettling) settleSlide(false)
+                pendingSlideDirection = 0
                 swiping = false
                 swipeEligible = false
             }
@@ -709,6 +785,87 @@ open class MainActivity : Activity() {
         }
         if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) swipeEligible = false
         return super.dispatchTouchEvent(event)
+    }
+
+    private fun isGalleryImage(item: GalleryDocuments.Item): Boolean =
+        item.mime?.startsWith("image/") == true ||
+            item.name?.lowercase(Locale.ROOT)?.matches(Regex(".*\\.(png|jpe?g|webp|gif)$")) == true
+
+    private fun startSlide(direction: Int) {
+        val overlay = slideOverlay ?: return
+        val current = slideCurrent ?: return
+        if (current.width == 0) return
+        slideDirection = direction
+        val neighbor = slidePrepared[direction] ?: return
+        slideNeighbor = neighbor
+        neighbor.translationX = direction * current.width.toFloat()
+    }
+
+    private fun moveSlide(delta: Float) {
+        val current = slideCurrent ?: return
+        val neighbor = slideNeighbor ?: return
+        val width = current.width.toFloat()
+        // A reversal within the same gesture returns to the original image, not a stale neighbor.
+        val shift = (delta * -slideDirection).coerceIn(0f, width) * -slideDirection
+        current.translationX = shift
+        neighbor.translationX = shift + slideDirection * width
+    }
+
+    private fun settleSlide(advance: Boolean) {
+        val current = slideCurrent ?: return
+        val neighbor = slideNeighbor ?: return
+        val width = current.width.toFloat()
+        if (!ValueAnimator.areAnimatorsEnabled()) { finishSlide(advance); return }
+        slideSettling = true
+        slideAdvance = advance
+        val target = if (advance) -slideDirection * width else 0f
+        val distance = kotlin.math.abs(target - current.translationX) / width
+        val duration = (180 * distance).toLong().coerceAtLeast(60)
+        neighbor.animate().translationX(target + slideDirection * width).setDuration(duration).start()
+        current.animate().translationX(target).setDuration(duration).setListener(object : AnimatorListenerAdapter() {
+            override fun onAnimationEnd(animation: Animator) {
+                if (slideSettling && slideCurrent === current) finishSlide(advance)
+            }
+        }).start()
+    }
+
+    private fun finishSlide(advance: Boolean) {
+        val direction = slideDirection
+        if (advance && direction != 0) {
+            // Keep the decoded incoming viewer across the render; do not queue its decode again.
+            slideNeighbor?.let { slideReuse = galleryItems!![galleryIndex + direction].uri to it }
+        }
+        clearSlide(keepViewer = !advance)
+        if (advance && direction != 0) selectGalleryItem(galleryIndex + direction)
+        val pending = pendingSlideDirection
+        pendingSlideDirection = 0
+        if (pending != 0) {
+            val overlay = slideOverlay
+            // The render reuses the incoming viewer but its width is not available until layout.
+            overlay?.post {
+                if (slideOverlay === overlay && galleryIndex + pending in 0 until (galleryItems?.size ?: 0)
+                    && (slideCurrent?.width ?: 0) > 0) {
+                    startSlide(pending)
+                    if (slideNeighbor != null) settleSlide(true)
+                }
+            }
+        }
+    }
+
+    private fun clearSlide(keepViewer: Boolean = false) {
+        slideSettling = false
+        slideAdvance = false
+        slideCurrent?.animate()?.setListener(null)?.cancel()
+        slideNeighbor?.animate()?.cancel()
+        if (slideReuse?.second === slideNeighbor) slideNeighbor?.let { (it.parent as? FrameLayout)?.removeView(it) }
+        slideNeighbor?.translationX = if (keepViewer) slideDirection * (slideCurrent?.width ?: 0).toFloat() else 0f
+        slideCurrent?.translationX = 0f
+        slideNeighbor = null
+        if (!keepViewer) {
+            slideCurrent = null
+            slideOverlay = null
+        }
+        slideDirection = 0
     }
 
     private fun containsTouch(view: View, event: MotionEvent): Boolean {
@@ -727,7 +884,6 @@ open class MainActivity : Activity() {
     }
 
     private fun switchTab(target: Int) {
-        fadeNextTab = target != tab
         showQueue = false
         link?.let { linkValue = it.text.toString() }
         syncSelection()
@@ -746,8 +902,7 @@ open class MainActivity : Activity() {
         Ui.gap(content, this, 20)
         val cached = galleryCache
         if (cached != null) {
-            if (cached.isNotEmpty()) galleryControls(cached)
-            else galleryEntries(cached)
+            galleryControls(cached)
             restoreGalleryScroll()
             return
         }
@@ -796,8 +951,10 @@ open class MainActivity : Activity() {
     private fun restoreGalleryScroll() {
         galleryListRendered = true
         galleryScrollPending = true
-        scroll?.post {
-            scroll?.scrollTo(0, galleryScrollY)
+        val page = scroll ?: return
+        page.post {
+            if (scroll !== page) return@post
+            page.scrollTo(0, galleryScrollY)
             galleryScrollPending = false
             galleryImages.loadVisible()
         }
@@ -809,10 +966,29 @@ open class MainActivity : Activity() {
     }
 
     private fun galleryControls(entries: List<GalleryStore.Entry>) {
-        val searchField = Ui.row(this)
-        searchField.background = Ui.outlined(this, Ui.INPUT, 14)
-        searchField.setPadding(Ui.dp(this, 14f), 0, Ui.dp(this, 10f), 0)
-        searchField.addView(Ui.icon(this, R.drawable.tabler_search, Ui.CYAN),
+        val heading = Ui.row(this)
+        heading.addView(Ui.text(this, entries.size.toString() +
+            AppLanguage.label(this, if (entries.size == 1) " descarga" else " descargas"),
+            14, Ui.CYAN, true), LinearLayout.LayoutParams(0, -2, 1f))
+        val filter = Ui.plainIconAction(this, R.drawable.tabler_filter, Runnable { galleryFilterPopup() })
+        filter.contentDescription = AppLanguage.label(this, "Filtros de galería")
+        filter.minimumWidth = Ui.dp(this, 48f)
+        filter.minimumHeight = Ui.dp(this, 48f)
+        heading.addView(filter)
+        content.addView(heading)
+        Ui.gap(content, this, 12)
+        galleryEntries(galleryQuery(entries, gallerySearch, galleryTypes, galleryOrder), content, entries.isNotEmpty())
+    }
+
+    private fun galleryFilterPopup() {
+        val draftTypes = galleryTypes.toMutableSet()
+        var draftOrder = galleryOrder
+        val panel = Ui.column(this)
+        panel.setPadding(Ui.dp(this, 20f), Ui.dp(this, 12f), Ui.dp(this, 20f), Ui.dp(this, 12f))
+        val field = Ui.row(this)
+        field.background = Ui.outlined(this, Ui.INPUT, 14)
+        field.setPadding(Ui.dp(this, 12f), 0, Ui.dp(this, 4f), 0)
+        field.addView(Ui.icon(this, R.drawable.tabler_search, Ui.CYAN),
             LinearLayout.LayoutParams(Ui.dp(this, 20f), Ui.dp(this, 20f)))
         val search = EditText(this)
         search.setSingleLine(true)
@@ -821,92 +997,94 @@ open class MainActivity : Activity() {
         search.typeface = Ui.typeface(this, false)
         search.textSize = 15f
         search.setBackgroundColor(Color.TRANSPARENT)
-        search.setPadding(Ui.dp(this, 12f), 0, 0, 0)
+        search.setPadding(Ui.dp(this, 10f), 0, 0, 0)
         search.minHeight = Ui.dp(this, 48f)
         search.hint = AppLanguage.label(this, "Buscar por título")
         search.contentDescription = AppLanguage.label(this, "Buscar por título")
         search.setText(gallerySearch)
-        searchField.addView(search, LinearLayout.LayoutParams(0, -2, 1f))
-        content.addView(searchField, LinearLayout.LayoutParams(-1, -2))
-        Ui.gap(content, this, 20)
-        content.addView(Ui.text(this, "Tipo de archivo", 14, Ui.WHITE, true))
-        Ui.gap(content, this, 8)
-        val types = GalleryType.entries.filter { it == GalleryType.ALL ||
-            galleryQuery(entries, "", it, GalleryOrder.ORIGINAL).isNotEmpty() }
-        galleryChoices(types, galleryType, "Tipo de archivo") { type ->
-            galleryType = type
-            scroll?.scrollTo(0, 0)
-            galleryScrollY = 0
-            render()
-        }
-        Ui.gap(content, this, 18)
-        content.addView(Ui.text(this, "Ordenar por", 14, Ui.WHITE, true))
-        Ui.gap(content, this, 8)
-        galleryChoices(GalleryOrder.entries, galleryOrder, "Ordenar por") { order ->
-            galleryOrder = order
-            scroll?.scrollTo(0, 0)
-            galleryScrollY = 0
-            render()
-        }
-        Ui.gap(content, this, 20)
-        val results = Ui.column(this)
-        content.addView(results)
-        fun updateResults() {
-            results.removeAllViews()
-            galleryEntries(galleryQuery(entries, gallerySearch, galleryType, galleryOrder), results, true)
-            scroll?.scrollTo(0, 0)
-            galleryScrollY = 0
-            results.post { galleryImages.loadVisible() }
-        }
-        galleryEntries(galleryQuery(entries, gallerySearch, galleryType, galleryOrder), results, true)
-        search.addTextChangedListener(object : TextWatcher {
-            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
-                gallerySearch = s?.toString() ?: ""
-                updateResults()
+        field.addView(search, LinearLayout.LayoutParams(0, -2, 1f))
+        val clear = Ui.plainIconAction(this, R.drawable.tabler_x, Runnable { search.text.clear() })
+        clear.contentDescription = AppLanguage.label(this, "Limpiar búsqueda")
+        clear.minimumWidth = Ui.dp(this, 48f)
+        clear.minimumHeight = Ui.dp(this, 48f)
+        field.addView(clear)
+        panel.addView(field)
+        Ui.gap(panel, this, 18)
+        panel.addView(Ui.text(this, "Tipo de archivo", 14, Ui.WHITE, true))
+        panel.addView(Ui.text(this, "Sin tipos marcados se muestran todos.", 12, Ui.MUTED, false))
+        Ui.gap(panel, this, 4)
+        var typeRow: LinearLayout? = null
+        for ((index, type) in GalleryType.entries.filter { it != GalleryType.ALL }.withIndex()) {
+            if (index % 2 == 0) {
+                typeRow = Ui.row(this)
+                panel.addView(typeRow)
             }
-            override fun afterTextChanged(s: Editable?) = Unit
-        })
-    }
-
-    private fun <T : Enum<T>> galleryChoices(options: List<T>, selected: T, group: String, choose: (T) -> Unit) {
-        val strip = HorizontalScrollView(this)
-        strip.isHorizontalScrollBarEnabled = false
-        val row = Ui.row(this)
-        for (option in options) {
-            val label = when (option) {
-                GalleryType.ALL -> "Todos"
+            val label = when (type) {
                 GalleryType.IMAGE -> "Imágenes"
                 GalleryType.GIF -> "GIF"
                 GalleryType.MP4 -> "MP4"
                 GalleryType.TXT -> "TXT"
-                GalleryType.FOLDER -> "Carpetas"
                 GalleryType.EPUB -> "EPUB"
+                GalleryType.FOLDER -> "Carpetas"
+                GalleryType.ALL -> continue
+            }
+            val check = CheckBox(this)
+            check.text = AppLanguage.label(this, label)
+            check.setTextColor(Ui.WHITE)
+            check.typeface = Ui.typeface(this, false)
+            check.textSize = 15f
+            check.buttonTintList = android.content.res.ColorStateList.valueOf(Ui.CYAN)
+            check.minHeight = Ui.dp(this, 48f)
+            check.isChecked = type in draftTypes
+            check.setOnCheckedChangeListener { _, checked ->
+                if (checked) draftTypes.add(type) else draftTypes.remove(type)
+            }
+            typeRow!!.addView(check, LinearLayout.LayoutParams(0, -2, 1f))
+        }
+        Ui.gap(panel, this, 12)
+        val orderLabel = Ui.text(this, "Ordenar por", 14, Ui.WHITE, true)
+        panel.addView(orderLabel)
+        Ui.gap(panel, this, 4)
+        val darkContext = android.view.ContextThemeWrapper(this, android.R.style.Theme_DeviceDefault)
+        val orders = GalleryOrder.entries
+        val labels = orders.map { order ->
+            AppLanguage.label(this, when (order) {
                 GalleryOrder.ORIGINAL -> "Orden original"
                 GalleryOrder.NEWEST -> "Más recientes"
                 GalleryOrder.OLDEST -> "Más antiguas"
-                else -> error("Unsupported gallery choice")
-            }
-            val active = option == selected
-            val chip = Ui.text(this, label, 14, if (active) Ui.INPUT else Ui.CYAN, true)
-            chip.gravity = Gravity.CENTER
-            chip.minHeight = Ui.dp(this, 44f)
-            chip.setPadding(Ui.dp(this, 14f), Ui.dp(this, 8f), Ui.dp(this, 14f), Ui.dp(this, 8f))
-            chip.background = if (active) Ui.background(this, Ui.CYAN, 12) else Ui.outlined(this, Ui.RAISED, 12)
-            chip.isSelected = active
-            val name = AppLanguage.label(this, group) + ": " + AppLanguage.label(this, label)
-            val state = AppLanguage.label(this, if (active) "Seleccionado" else "No seleccionado")
-            if (Build.VERSION.SDK_INT >= 30) {
-                chip.contentDescription = name
-                chip.stateDescription = state
-            } else chip.contentDescription = "$name, $state"
-            chip.setOnClickListener { choose(option) }
-            val params = LinearLayout.LayoutParams(-2, -2)
-            params.rightMargin = Ui.dp(this, 8f)
-            row.addView(chip, params)
+            })!!
         }
-        strip.addView(row)
-        content.addView(strip)
+        val spinner = android.widget.Spinner(darkContext)
+        spinner.id = View.generateViewId()
+        spinner.contentDescription = AppLanguage.label(this, "Ordenar por")
+        orderLabel.labelFor = spinner.id
+        val adapter = android.widget.ArrayAdapter(darkContext, android.R.layout.simple_spinner_item, labels)
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        spinner.adapter = adapter
+        spinner.setSelection(orders.indexOf(draftOrder))
+        spinner.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) {
+                draftOrder = orders[position]
+            }
+            override fun onNothingSelected(parent: android.widget.AdapterView<*>?) = Unit
+        }
+        spinner.minimumHeight = Ui.dp(this, 48f)
+        panel.addView(spinner, LinearLayout.LayoutParams(-1, -2))
+        val scroller = ScrollView(this)
+        scroller.addView(panel)
+        val dialog = AlertDialog.Builder(this, AlertDialog.THEME_DEVICE_DEFAULT_DARK)
+            .setTitle(AppLanguage.label(this, "Filtros de galería"))
+            .setView(scroller)
+            .setNegativeButton(AppLanguage.label(this, "Cancelar"), null)
+            .setPositiveButton(AppLanguage.label(this, "Filtrar")) { _, _ ->
+                gallerySearch = search.text.toString()
+                galleryTypes = draftTypes.toSet()
+                galleryOrder = draftOrder
+                galleryScrollY = 0
+                render()
+            }.create()
+        dialog.window?.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN)
+        dialog.show()
     }
 
     private fun galleryEntries(entries: List<GalleryStore.Entry>, target: LinearLayout = content, queried: Boolean = false) {
@@ -928,8 +1106,6 @@ open class MainActivity : Activity() {
             target.addView(empty)
             return
         }
-        target.addView(Ui.text(this, entries.size.toString() + AppLanguage.label(this, if (entries.size == 1) " descarga" else " descargas"), 14, Ui.CYAN, true))
-        Ui.gap(target, this, 12)
         for (i in entries.indices step 2) {
             val row = Ui.row(this)
             row.gravity = Gravity.TOP
@@ -1036,6 +1212,8 @@ open class MainActivity : Activity() {
     }
 
     private fun fullscreenGallery() {
+        fullscreenGestureControls = emptyList()
+        root.setBackgroundColor(Ui.BACK)
         val toolbar = Ui.row(this)
         toolbar.setPadding(Ui.dp(this, 12f), Ui.dp(this, 8f), Ui.dp(this, 12f), Ui.dp(this, 8f))
         val items = galleryItems
@@ -1049,13 +1227,14 @@ open class MainActivity : Activity() {
         val close = Ui.plainIconAction(this, R.drawable.tabler_x, Runnable { galleryFullscreen = false; render() })
         close.contentDescription = AppLanguage.label(this, "Salir de pantalla completa")
         toolbar.addView(close, LinearLayout.LayoutParams(Ui.dp(this, 48f), Ui.dp(this, 48f)))
-        root.addView(toolbar)
         fullscreenMedia = null
         if (galleryLoading) {
+            root.addView(toolbar)
             root.addView(LoadingSkeleton(this), LinearLayout.LayoutParams(-1, 0, 1f))
             return
         }
         if (items == null || items.isEmpty() || galleryError != null) {
+            root.addView(toolbar)
             val state = Ui.text(this, galleryError ?: "Esta carpeta está vacía.", 15, Ui.MUTED, false)
             state.gravity = Gravity.CENTER
             root.addView(state, LinearLayout.LayoutParams(-1, 0, 1f))
@@ -1063,7 +1242,19 @@ open class MainActivity : Activity() {
         }
         val item = items[galleryIndex]
         val text = (item.mime?.startsWith("text/") == true) || item.name!!.lowercase(Locale.ROOT).endsWith(".txt")
-        val viewer = Ui.column(this)
+        val image = isGalleryImage(item)
+        val overlay = if (image) FrameLayout(this) else null
+        if (overlay != null) {
+            root.setBackgroundColor(Color.BLACK)
+            root.addView(overlay, LinearLayout.LayoutParams(-1, 0, 1f))
+            toolbar.setBackgroundColor(0xCC000000.toInt())
+            toolbar.visibility = if (fullscreenControlsVisible) View.VISIBLE else View.GONE
+            overlay.addView(toolbar, FrameLayout.LayoutParams(-1, -2, Gravity.TOP))
+            fullscreenGestureControls = listOf(toolbar)
+        } else root.addView(toolbar)
+        val viewer = if (overlay != null && slideReuse?.first == item.uri) slideReuse!!.second else Ui.column(this)
+        slideReuse = null
+        var imageControls: LinearLayout? = null
         if (text) {
             val reader = ScrollView(this)
             reader.isFillViewport = true
@@ -1071,15 +1262,55 @@ open class MainActivity : Activity() {
             reader.addView(viewer)
             root.addView(reader, LinearLayout.LayoutParams(-1, 0, 1f))
             fullscreenMedia = reader
+        } else if (overlay != null) {
+            overlay.addView(viewer, 0, FrameLayout.LayoutParams(-1, -1))
+            fullscreenMedia = viewer
+            slideOverlay = overlay
+            slideCurrent = viewer
+            viewer.contentDescription = AppLanguage.label(this, if (fullscreenControlsVisible)
+                "Ocultar controles" else "Mostrar controles")
+            viewer.setOnClickListener {
+                fullscreenControlsVisible = !fullscreenControlsVisible
+                viewer.contentDescription = AppLanguage.label(this, if (fullscreenControlsVisible)
+                    "Ocultar controles" else "Mostrar controles")
+                toolbar.visibility = if (fullscreenControlsVisible) View.VISIBLE else View.GONE
+                imageControls?.visibility = if (fullscreenControlsVisible) View.VISIBLE else View.GONE
+                if (fullscreenControlsVisible) imageControls?.post { galleryImages.loadVisible() }
+            }
         } else {
             root.addView(viewer, LinearLayout.LayoutParams(-1, 0, 1f))
             fullscreenMedia = viewer
         }
-        galleryVideo = GalleryViewer.show(this, viewer, item, galleryIO, -1)
+        if (viewer.childCount == 0) galleryVideo = GalleryViewer.show(this, viewer, item, galleryIO, -1)
+        if (overlay != null) {
+            (viewer.getChildAt(0) as? FrameLayout)?.setBackgroundColor(Color.BLACK)
+            // At most the two immediate neighbors are decoded; keep them attached off-screen so
+            // GalleryViewer's stale-view guard can complete the load before a finger drag begins.
+            for (direction in intArrayOf(-1, 1)) {
+                val adjacent = items.getOrNull(galleryIndex + direction) ?: continue
+                if (!isGalleryImage(adjacent)) continue
+                val prepared = Ui.column(this)
+                overlay.addView(prepared, 1, FrameLayout.LayoutParams(-1, -1))
+                prepared.translationX = direction * resources.displayMetrics.widthPixels.toFloat()
+                GalleryViewer.show(this, prepared, adjacent, galleryIO, -1)
+                (prepared.getChildAt(0) as? FrameLayout)?.setBackgroundColor(Color.BLACK)
+                slidePrepared[direction] = prepared
+                overlay.addOnLayoutChangeListener { _, left, _, right, _, _, _, _, _ ->
+                    if (slideNeighbor !== prepared) prepared.translationX = direction * (right - left).toFloat()
+                }
+            }
+        }
         if (items.size > 1) {
             val counter = Ui.text(this, "${galleryIndex + 1} / ${items.size}", 13, Ui.CYAN, true)
             counter.gravity = Gravity.CENTER
-            root.addView(counter)
+            val controls = if (overlay != null) Ui.column(this).apply {
+                imageControls = this
+                setBackgroundColor(0xCC000000.toInt())
+                visibility = if (fullscreenControlsVisible) View.VISIBLE else View.GONE
+                overlay.addView(this, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM))
+                fullscreenGestureControls = listOf(toolbar, this)
+            } else root
+            controls.addView(counter)
             val strip = HorizontalScrollView(this)
             strip.isHorizontalScrollBarEnabled = false
             strip.isFillViewport = false
@@ -1101,7 +1332,7 @@ open class MainActivity : Activity() {
                 thumbnails.addView(tile, params)
                 if (i == galleryIndex) selectedTile = tile
             }
-            root.addView(strip)
+            controls.addView(strip)
             val centered = selectedTile!!
             strip.post {
                 if (galleryFullscreen && strip.isAttachedToWindow) {
@@ -1144,7 +1375,11 @@ open class MainActivity : Activity() {
             filename.isSingleLine = true
             filename.ellipsize = android.text.TextUtils.TruncateAt.END
             viewerHeader.addView(filename, LinearLayout.LayoutParams(0, -2, 1f))
-            val fullscreen = Ui.plainIconAction(this, R.drawable.tabler_maximize, Runnable { galleryFullscreen = true; render() })
+            val fullscreen = Ui.plainIconAction(this, R.drawable.tabler_maximize, Runnable {
+                fullscreenControlsVisible = false
+                galleryFullscreen = true
+                render()
+            })
             fullscreen.contentDescription = AppLanguage.label(this, "Ver en pantalla completa")
             val fullscreenParams = LinearLayout.LayoutParams(Ui.dp(this, 44f), Ui.dp(this, 44f))
             fullscreenParams.leftMargin = Ui.dp(this, 8f)
@@ -1670,8 +1905,9 @@ open class MainActivity : Activity() {
         selectionDownloadButton = Ui.button(this, "Descargar selección", R.drawable.tabler_download, true, Runnable { download() })
         bar.addView(selectionDownloadButton)
         updateDownloadButton()
-        bottom.addView(bar)
-        Ui.gap(bottom, this, 8)
+        bottom.addView(bar, bottom.indexOfChild(navigation))
+        bottom.addView(View(this), bottom.indexOfChild(navigation),
+            LinearLayout.LayoutParams(1, Ui.dp(this, 8f)))
         updateSelection()
     }
 

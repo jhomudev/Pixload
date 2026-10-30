@@ -25,6 +25,20 @@ class GalleryQueryTest {
         assertEquals(listOf("6"), galleryQuery(entries, "otro", GalleryType.IMAGE, GalleryOrder.ORIGINAL).map { it.uri })
     }
 
+    @Test fun combinesMultipleTypeCheckboxesWithTitleAndOrderWithoutMutatingHistory() {
+        val entries = listOf(entry("old-gif", "Azul", "image/gif", date = 10),
+            entry("new-png", "azul", "image/png", date = 20),
+            entry("other", "Otro", "video/mp4", date = 30),
+            entry("folder", "Azul", "image/gif", folder = true, date = 40))
+        assertEquals(listOf("new-png", "old-gif"), galleryQuery(entries, "AZUL",
+            setOf(GalleryType.IMAGE, GalleryType.GIF), GalleryOrder.NEWEST).map { it.uri })
+        assertEquals(listOf("folder"), galleryQuery(entries, "azul", setOf(GalleryType.FOLDER),
+            GalleryOrder.ORIGINAL).map { it.uri })
+        assertEquals(listOf("old-gif", "new-png", "other", "folder"),
+            galleryQuery(entries, "", emptySet(), GalleryOrder.ORIGINAL).map { it.uri })
+        assertEquals(listOf("old-gif", "new-png", "other", "folder"), entries.map { it.uri })
+    }
+
     @Test fun filtersEpubNovelsWithoutTreatingThemAsTxt() {
         val entries = listOf(entry("epub", "Story", "application/epub+zip"), entry("txt", "Story", "text/plain"))
         assertEquals(listOf("epub"), galleryQuery(entries, "story", GalleryType.EPUB, GalleryOrder.ORIGINAL).map { it.uri })
