@@ -928,7 +928,8 @@ open class MainActivity : Activity() {
             var failure: String? = null
             try {
                 val stored = GalleryStore.list(this)
-                entries = stored.filter { GalleryDocuments.isAvailable(contentResolver, it) }
+                val available = GalleryDocuments.available(contentResolver, stored)
+                entries = stored.filter { available[it.uri] != false }
                 hidden = stored.mapTo(HashSet()) { it.uri }.apply { removeAll(entries.map { it.uri }) }
             } catch (error: IllegalStateException) {
                 failure = AppLanguage.error(this, error.message)

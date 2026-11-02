@@ -15,8 +15,13 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
@@ -52,6 +57,39 @@ public class GalleryDocumentsTest {
             if (denied != null) throw denied;
             return cursor;
         }
+        @Override public String getType(Uri uri) { return null; }
+        @Override public Uri insert(Uri uri, ContentValues values) { throw new UnsupportedOperationException(); }
+        @Override public int delete(Uri uri, String selection, String[] args) { throw new UnsupportedOperationException(); }
+        @Override public int update(Uri uri, ContentValues values, String selection, String[] args) { throw new UnsupportedOperationException(); }
+    }
+
+    private static GalleryStore.Entry treeEntry(String uri, String treeUri) {
+        return new GalleryStore.Entry(uri, "Title", "image/png", "", false, 1, 0, "", treeUri);
+    }
+
+    private static final class TreeProvider extends ContentProvider {
+        final Map<String, Set<String>> listings = new HashMap<>();
+        final Set<String> documents = new HashSet<>();
+        final List<Uri> queries = new ArrayList<>();
+        RuntimeException listingDenied;
+
+        @Override public boolean onCreate() { return true; }
+
+        @Override public Cursor query(Uri uri, String[] columns, String selection, String[] args, String sortOrder) {
+            queries.add(uri);
+            MatrixCursor cursor = new MatrixCursor(columns);
+            String path = uri.getPath();
+            if (path != null && path.endsWith("/children")) {
+                if (listingDenied != null) throw listingDenied;
+                Set<String> ids = listings.get(DocumentsContract.getDocumentId(uri));
+                if (ids != null) for (String id : ids) cursor.addRow(new Object[]{id});
+                return cursor;
+            }
+            String id = DocumentsContract.getDocumentId(uri);
+            if (documents.contains(id)) cursor.addRow(new Object[]{id});
+            return cursor;
+        }
+
         @Override public String getType(Uri uri) { return null; }
         @Override public Uri insert(Uri uri, ContentValues values) { throw new UnsupportedOperationException(); }
         @Override public int delete(Uri uri, String selection, String[] args) { throw new UnsupportedOperationException(); }
@@ -183,5 +221,96 @@ public class GalleryDocumentsTest {
         provider.cursor = restored;
         assertTrue(GalleryDocuments.isAvailable(resolver, entry(TREE, "", false)));
         assertTrue(restored.closed);
+    }
+
+    @Test public void availabilityListsEachTreeOnceAndFallsBackOnlyForMissingEntries() {
+        TreeProvider provider = new TreeProvider();
+        Uri tree = Uri.parse(TREE);
+        Uri other = Uri.parse("content://example.test/tree/other/document/other%2Ffolder");
+        String first = DocumentsContract.buildDocumentUriUsingTree(tree, "root/folder/a.png").toString();
+        String sibling = DocumentsContract.buildDocumentUriUsingTree(tree, "root/folder/b.png").toString();
+        String deleted = DocumentsContract.buildDocumentUriUsingTree(tree, "root/folder/deleted.png").toString();
+        String elsewhere = DocumentsContract.buildDocumentUriUsingTree(other, "other/folder/c.png").toString();
+        provider.listings.put("root/folder", new HashSet<>(Arrays.asList("root/folder/a.png", "root/folder/b.png")));
+        provider.listings.put("other/folder", new HashSet<>(Arrays.asList("other/folder/c.png")));
+        provider.documents.add("root/folder/a.png");
+        provider.documents.add("root/folder/b.png");
+        provider.documents.add("other/folder/c.png");
+
+        Map<String, Boolean> available = GalleryDocuments.available(ContentResolver.wrap(provider), Arrays.asList(
+                treeEntry(first, TREE), treeEntry(sibling, TREE), treeEntry(deleted, TREE), treeEntry(elsewhere, other.toString())));
+
+        assertEquals(Boolean.TRUE, available.get(first));
+        assertEquals(Boolean.TRUE, available.get(sibling));
+        assertEquals(Boolean.FALSE, available.get(deleted));
+        assertEquals(Boolean.TRUE, available.get(elsewhere));
+        // Two trees, one listing each, plus the per-entry fallback for the deleted document.
+        assertEquals(3, provider.queries.size());
+        assertTrue(provider.queries.contains(DocumentsContract.buildChildDocumentsUriUsingTree(tree, "root/folder")));
+        assertTrue(provider.queries.contains(DocumentsContract.buildChildDocumentsUriUsingTree(other, "other/folder")));
+        assertTrue(provider.queries.contains(Uri.parse(deleted)));
+    }
+
+    @Test public void availabilityKeepsEntryWhenListingMissesButDocumentResolves() {
+        TreeProvider provider = new TreeProvider();
+        Uri tree = Uri.parse(TREE);
+        String nested = DocumentsContract.buildDocumentUriUsingTree(tree, "root/folder/nested/deep.png").toString();
+        provider.documents.add("root/folder/nested/deep.png");
+
+        Map<String, Boolean> available = GalleryDocuments.available(ContentResolver.wrap(provider),
+                Arrays.asList(treeEntry(nested, TREE)));
+
+        assertEquals(Boolean.TRUE, available.get(nested));
+        assertEquals(2, provider.queries.size());
+        assertEquals(Uri.parse(nested), provider.queries.get(1));
+    }
+
+    @Test public void availabilityFallsBackPerEntryWhenListingFails() {
+        TreeProvider provider = new TreeProvider();
+        Uri tree = Uri.parse(TREE);
+        String present = DocumentsContract.buildDocumentUriUsingTree(tree, "root/folder/a.png").toString();
+        String deleted = DocumentsContract.buildDocumentUriUsingTree(tree, "root/folder/deleted.png").toString();
+        provider.documents.add("root/folder/a.png");
+        provider.listingDenied = new SecurityException("denied");
+
+        Map<String, Boolean> available = GalleryDocuments.available(ContentResolver.wrap(provider),
+                Arrays.asList(treeEntry(present, TREE), treeEntry(deleted, TREE)));
+
+        assertEquals(Boolean.TRUE, available.get(present));
+        assertEquals(Boolean.FALSE, available.get(deleted));
+        assertEquals(3, provider.queries.size());
+    }
+
+    @Test public void availabilityQueriesEntriesWithoutTreeUriIndividually() {
+        TreeProvider provider = new TreeProvider();
+        Uri tree = Uri.parse(TREE);
+        String present = DocumentsContract.buildDocumentUriUsingTree(tree, "root/folder/a.png").toString();
+        String deleted = DocumentsContract.buildDocumentUriUsingTree(tree, "root/folder/deleted.png").toString();
+        provider.documents.add("root/folder/a.png");
+        provider.listings.put("root/folder", new HashSet<>(Arrays.asList("root/folder/a.png")));
+
+        Map<String, Boolean> available = GalleryDocuments.available(ContentResolver.wrap(provider),
+                Arrays.asList(treeEntry(present, ""), treeEntry(deleted, "")));
+
+        assertEquals(Boolean.TRUE, available.get(present));
+        assertEquals(Boolean.FALSE, available.get(deleted));
+        assertEquals(2, provider.queries.size());
+        assertEquals(Uri.parse(present), provider.queries.get(0));
+        assertEquals(Uri.parse(deleted), provider.queries.get(1));
+    }
+
+    @Test public void availabilityKeepsTheBatchWhenOneStoredUriIsMalformed() {
+        TreeProvider provider = new TreeProvider();
+        Uri tree = Uri.parse(TREE);
+        String present = DocumentsContract.buildDocumentUriUsingTree(tree, "root/folder/a.png").toString();
+        provider.listings.put("root/folder", new HashSet<>(Arrays.asList("root/folder/a.png")));
+        provider.documents.add("root/folder/a.png");
+
+        Map<String, Boolean> available = GalleryDocuments.available(ContentResolver.wrap(provider),
+                Arrays.asList(treeEntry(present, TREE), treeEntry("not-a-uri", TREE)));
+
+        assertEquals(Boolean.TRUE, available.get(present));
+        assertEquals(Boolean.FALSE, available.get("not-a-uri"));
+        assertEquals(2, provider.queries.size());
     }
 }

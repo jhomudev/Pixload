@@ -29,6 +29,58 @@ internal object GalleryDocuments {
         @JvmField val mime: String?
     )
 
+    /**
+     * Availability for a whole history: one child listing per saved tree instead of one SAF query
+     * per entry. Every entry the listing does not cover keeps the exact [isAvailable] semantics, so
+     * a deleted entry is hidden and a permission or provider failure never hides anything.
+     */
+    @JvmStatic
+    fun available(resolver: ContentResolver, entries: List<GalleryStore.Entry>): Map<String, Boolean> {
+        val available = HashMap<String, Boolean>(entries.size)
+        val fallback = ArrayList<GalleryStore.Entry>()
+        val trees = LinkedHashMap<String, MutableList<GalleryStore.Entry>>()
+        for (entry in entries) {
+            if (entry.treeUri.isEmpty() || documentId(entry.uri) == null) fallback.add(entry)
+            else trees.getOrPut(entry.treeUri) { ArrayList() }.add(entry)
+        }
+        for ((treeUri, group) in trees) {
+            val listed = children(resolver, treeUri)
+            if (listed == null) {
+                fallback.addAll(group)
+                continue
+            }
+            for (entry in group) {
+                val id = documentId(entry.uri)
+                if (id != null && id in listed) available[entry.uri] = true else fallback.add(entry)
+            }
+        }
+        for (entry in fallback) available[entry.uri] = isAvailable(resolver, entry)
+        return available
+    }
+
+    /** Child document ids of a tree root, or null when that tree cannot be listed reliably. */
+    private fun children(resolver: ContentResolver, treeUri: String): Set<String>? {
+        return try {
+            val tree = Uri.parse(treeUri)
+            val children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, DocumentsContract.getDocumentId(tree))
+            resolver.query(children, arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID), null, null, null)
+                .use { cursor ->
+                    if (cursor == null) null else HashSet<String>().apply {
+                        while (cursor.moveToNext()) add(cursor.getString(0))
+                    }
+                }
+        } catch (_: Exception) {
+            // Any listing failure falls back to the per-entry semantics instead of hiding entries.
+            null
+        }
+    }
+
+    private fun documentId(uri: String): String? = try {
+        DocumentsContract.getDocumentId(Uri.parse(uri))
+    } catch (_: IllegalArgumentException) {
+        null
+    }
+
     @JvmStatic
     @Throws(IOException::class)
     fun list(resolver: ContentResolver, entry: GalleryStore.Entry): List<Item> {
