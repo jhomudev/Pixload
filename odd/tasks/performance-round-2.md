@@ -10,7 +10,7 @@ S5. GIF pipeline overlaps decoding and encoding without changing output bytes, d
 
 ## Tasks
 T1 [S2-S3] Batched gallery availability with per-tree listing and exact fallback semantics. Route: parent inline. Status: done. Risk: none.
-T2 [S2,S4] Cover thumbnail from the `small` variant with fallbacks. Route: parent inline. Status: pending.
+T2 [S2,S4] Cover thumbnail from the `small` variant with fallbacks. Route: parent inline. Status: done. Risk: none.
 T3 [S2,S5] Overlapped GIF decode/encode pipeline with device benchmark and independent verifier. Route: parent inline + verifier. Status: pending.
 
 ## Log
@@ -18,3 +18,4 @@ L1. "no hay otras mejoras posibles mas respecto al rendimiento?"
 L2. "inicia tal como tu recomendacion."
 L3. Exploration: `GalleryStore.Entry` already stores `treeUri` (added for duplicate detection), so batching needs no persisted-format change; `GalleryDocuments.isAvailable` queries one document per entry; `MainActivity.validateGallery` calls it per stored entry off the main thread; `PixivClient` builds the work cover from `urls.regular` while page thumbnails already prefer `urls.small`; `GifConversion.convert` decodes, converts to pixels and encodes strictly serially.
 L4. T1 implemented: `GalleryDocuments.available` groups entries by `treeUri`, runs one child listing per tree, keeps every entry missing from that listing on the per-entry `isAvailable` path (deleted → hidden, provider or permission failure → kept), and queries entries without a stored tree URI or with a malformed URI individually. `MainActivity.validateGallery` now filters with `available[it.uri] != false`. Tests: 5 new instrumented cases in `GalleryDocumentsTest` (one listing per tree + fallback only for missing entries, listing miss that still resolves, listing failure falling back per entry, entries without treeUri, malformed URI not breaking the batch). RED observed (unresolved symbol), GREEN `OK (12 tests)` on device, JVM 119 + shared 24, 0 failures.
+L5. T2 implemented: `coverThumbnail(small, regular)` prefers Pixiv's `small` variant for `work.thumbnail` and falls back to `regular`; the R-18 guard still reads `regular`, so its trigger is unchanged, and the novel `coverUrl` branch is untouched. Consumers of `work.thumbnail` are the 190 dp download card and the 56 dp queue row, so `small` (540 px) is decoded near native size instead of downsampling a 1200 px regular. Tests: `PixivCoverTest` (small preferred, regular fallback, both missing). RED observed (unresolved `coverThumbnail`), GREEN 121 app tests, 0 failures. Visual quality of a live cover on the phone was not checked: it needs a Pixiv work link, so no quality claim is made.

@@ -15,6 +15,13 @@ import java.net.URL
 import java.nio.charset.StandardCharsets
 import java.util.Locale
 
+/**
+ * The work cover only feeds the 190 dp download card and the 56 dp queue row, so Pixiv's small
+ * variant covers it at a fraction of the bytes of the regular one. Restricted works can withhold
+ * every variant, which leaves the cover empty.
+ */
+internal fun coverThumbnail(small: String, regular: String): String = if (small.isEmpty()) regular else small
+
 internal class PixivClient private constructor() {
     class Work {
         @JvmField var id: String? = null
@@ -76,12 +83,15 @@ internal class PixivClient private constructor() {
             work.title = body.optString("title", "obra-$id")
             work.author = body.optString("userName", "")
             val previewUrls = body.optJSONObject("urls")
-            var thumbnail = if (previewUrls == null || previewUrls.isNull("regular")) "" else previewUrls.optString("regular", "")
+            val regular = if (previewUrls == null || previewUrls.isNull("regular")) "" else previewUrls.optString("regular", "")
+            val small = if (previewUrls == null || previewUrls.isNull("small")) "" else previewUrls.optString("small", "")
             // Restricted metadata can be visible even when Pixiv withholds original image URLs.
-            if (!novel && body.optInt("xRestrict", 0) > 0 && thumbnail.isEmpty()) {
+            // The guard keeps reading the regular variant: Pixiv withholds every variant together.
+            if (!novel && body.optInt("xRestrict", 0) > 0 && regular.isEmpty()) {
                 throw IOException("Esta obra es R-18. Pixiv no permite ver sus archivos sin una sesión " +
                     "autorizada y con el contenido R-18 habilitado en la cuenta.")
             }
+            var thumbnail = coverThumbnail(small, regular)
             if (novel) {
                 work.type = "novel"
                 thumbnail = body.optString("coverUrl", "")
