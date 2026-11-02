@@ -84,7 +84,9 @@ internal object GifConversion {
                         resized.getPixels(pixels, 0, width, 0, 0, width, height)
                         // Round the cumulative elapsed time, never individual frame delays.
                         val delayCs = (targetCs - encodedCs).coerceAtLeast(1).coerceAtMost(65535)
-                        encoder.addImage(pixels, width, ImageOptions()
+                        // Dither here: the encoder would build a Color per pixel before dithering,
+                        // and it skips its own quantize and dither for an already palette-only image.
+                        encoder.addImage(ditherer.ditherPixels(pixels, width, height), ImageOptions()
                             .setColorQuantizer(quantizer).setDitherer(ditherer)
                             .setDelay(delayCs * 10, TimeUnit.MILLISECONDS))
                         encodedCs += delayCs
@@ -206,21 +208,43 @@ internal class PaletteLookupDitherer(palette: Set<Color>, private val diffuse: B
         return chosen
     }
 
-    override fun dither(image: Image, newColors: MutableSet<Color>): Image {
-        val width = image.width
-        val height = image.height
+    override fun dither(image: Image, newColors: MutableSet<Color>): Image =
+        ditherGrid(image.getWidth(), image.getHeight(), null, image)
+
+    /**
+     * Dithers raw ARGB pixels straight to palette colors. The encoder would otherwise build a Color
+     * per pixel only for [dither] to read it back, which is a large part of the per-frame cost.
+     */
+    fun ditherPixels(pixels: IntArray, width: Int, height: Int): Image =
+        ditherGrid(width, height, pixels, null)
+
+    private fun ditherGrid(width: Int, height: Int, pixels: IntArray?, image: Image?): Image {
         val result = Array(height) { Array(width) { Color.BLACK } }
         var current = FloatArray((width + 2) * 3)
         var next = FloatArray((width + 2) * 3)
         for (y in 0 until height) {
             if (Thread.currentThread().isInterrupted) throw IllegalStateException("Conversión interrumpida")
             for (x in 0 until width) {
-                val source = image.getColor(x, y)
                 val pos = (x + 1) * 3
                 val rounding = if (precise) 0.5f else 0f
-                val red = (source.getComponent(0) * 255 + current[pos] + rounding).toInt().coerceIn(0, 255)
-                val green = (source.getComponent(1) * 255 + current[pos + 1] + rounding).toInt().coerceIn(0, 255)
-                val blue = (source.getComponent(2) * 255 + current[pos + 2] + rounding).toInt().coerceIn(0, 255)
+                // Both sources must produce the same double Color keeps: component / 255.0.
+                val sourceRed: Double
+                val sourceGreen: Double
+                val sourceBlue: Double
+                if (pixels != null) {
+                    val rgb = pixels[y * width + x]
+                    sourceRed = ((rgb ushr 16) and 0xff) / 255.0 * 255.0
+                    sourceGreen = ((rgb ushr 8) and 0xff) / 255.0 * 255.0
+                    sourceBlue = (rgb and 0xff) / 255.0 * 255.0
+                } else {
+                    val source = image!!.getColor(x, y)
+                    sourceRed = source.getComponent(0) * 255
+                    sourceGreen = source.getComponent(1) * 255
+                    sourceBlue = source.getComponent(2) * 255
+                }
+                val red = (sourceRed + current[pos] + rounding).toInt().coerceIn(0, 255)
+                val green = (sourceGreen + current[pos + 1] + rounding).toInt().coerceIn(0, 255)
+                val blue = (sourceBlue + current[pos + 2] + rounding).toInt().coerceIn(0, 255)
                 val cell = ((red shr 3) shl 10) or ((green shr 3) shl 5) or (blue shr 3)
                 val chosen = if (precise) nearest(red, green, blue, cell) else lookup[cell]
                 result[y][x] = chosen

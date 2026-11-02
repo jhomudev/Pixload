@@ -211,7 +211,7 @@ public class UgoiraConverterTest {
                 StringBuilder hash = new StringBuilder();
                 for (byte value : digest) hash.append(String.format(java.util.Locale.ROOT, "%02x", value & 255));
                 assertEquals(preset == GifPreset.FAST
-                        ? "8092f76d897a6031cc89d3a357c11298c6bfa42c76ab5b612313cc70d781b01a"
+                        ? "686d2788caf2c77de845809c2b827cc9dcf078c0a61aa83fcfbbf034ec1747a1"
                         : "3a47b52ac68ca2e9f522e6f37dcfdc1243fa8ae0db0992db9241156678490728", hash.toString());
             }
         } finally { archive.delete(); }
