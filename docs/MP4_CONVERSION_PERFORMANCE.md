@@ -1,0 +1,87 @@
+# MP4 baseline: keep the current encoder pending approval
+
+No production optimization was implemented. The measured JCodec H.264/mux sink accounts for 86.7% of conversion time on the authorized phone. Small bitmap optimizations do not establish a material speedup; replacing the encoder requires parent/user approval because it changes compatibility and error behavior. T1 produced a baseline; T2 took the explicitly permitted measured-stop route. The parent accepted T3: it re-ran the contract suite (17 tests) and the nested profile independently, measuring 126,867 ms total with 121,478 ms in native encoding, of which the H.264/mux sink took 109,923 ms. That run is slower than the worker's 85,748 ms for the same fixture, which confirms large warm-up/thermal drift without changing the encode-dominance conclusion. No speedup is delivered.
+
+## Evidence and fixture
+
+- Device: `adb-ZY22H65ZBW-ja0hNt._adb-tls-connect._tcp`, Motorola edge 30 pro. Only local adb was used.
+- Retained host scratch: `/tmp/pixload-mp4-oLNE0b` (not deleted).
+- Retained device scratch: `/data/user/0/com.pixload.app/cache/mp4-oLNE0b`; deployment copy: `/data/local/tmp/pixload-mp4-oLNE0b.zip`.
+- Fixture: `hundred-jpeg.zip`, 100 JPEGs at 1441×811, JPEG quality 88, 100 ms delay each, plus `frames.json` in the ZIP. Expected output: 300 samples, 1280×720, 30 fps, 10 seconds.
+- Exact ZIP SHA-256: `284d5d4ecfdc2c28cba42e9e16d84d79ae8a1680bd6568978968081cf9639c5d`.
+- The retained `generate_fixture.py` uses installed Pillow 13.0.0, not a project dependency. For frame `i`, pixel `(x,y)` is `((x*255//1440+i*4)%256, (y*255//810+i*3)%256, (x+y+i*7)%256)`. ZIP metadata timestamps can differ on regeneration; the measured ZIP itself is retained.
+- No Pixiv, real downloads, SAF grants, accounts, GIF performance baselines, SSH, or remote sessions were used.
+
+### Fresh baseline (all times in milliseconds)
+
+| Run, in execution order | Total | Decode/scale | Bitmap→RGB | encodeNativeFrame | Finish |
+|---|---:|---:|---:|---:|---:|
+| Production 0 | 93396 | — | — | — | — |
+| Profile 0 | 90350 | 1391 | 2289 | 86613 | 0 |
+| Profile 1 | 86620 | 1355 | 2223 | 82985 | 1 |
+| Production 1 | 86417 | — | — | — | — |
+
+Production runs call `UgoiraConverter.mp4` directly and receive exactly `1..100` progress callbacks, each with total 100. Profile runs invoke the exact existing private decoder, including bounds validation, subsampling and scaling. They split `AndroidSequenceEncoder.encodeImage` into its existing calls to `BitmapUtil.fromBitmap` and `encodeNativeFrame`. This does not modify production code. Decode includes ZIP reads; native encoding includes RGB→YUV, H.264, packet copies and muxing. Totals also include setup, recycling and harness overhead; phases are truncated to integer milliseconds.
+
+The extra nested profile took 85748 ms: decode/scale 1348 ms, bitmap→RGB 2223 ms, native encoding 82121 ms, finish <1 ms. A test-only proxy timed the **existing** sink's `outputVideoFrame`: H.264 plus packet copies/muxing took 74304 ms; RGB→YUV, pixel-store work and dispatch took the remaining 7816 ms of native encoding. This is a wall-clock call-boundary profile, not a CPU-sampling profile isolating H.264 from muxing.
+
+All five outputs were 8751373 bytes. `ffprobe` observed H.264, 1280×720, 30/1 fps, 300 decoded frames and exactly 10 seconds. FFmpeg fully decoded each output; their complete `framemd5` outputs shared SHA-256 `378ca6a896e831874ec732af296bd29fd9f04fa39bf0f83b0822fb3cf3423113`. Container file hashes differ; decoded frames and timestamps match. A six-frame preview of the production output also showed the changing synthetic gradient.
+
+## Decision and limits
+
+- Combined baseline profiles spend 95.8% in native encoding, 2.55% in bitmap→RGB and 1.55% in decode/scale.
+- Reusing RGB for two of every three encoded samples has a theoretical wall-time ceiling near 1.7% on this fixture, before any implementation overhead. No such optimization was written or benchmarked as an improvement.
+- Avoiding repeated RGB→YUV would require bypassing `SequenceEncoder`'s RGB-only entry point and owning lower-level JCodec sink/packet state. Even eliminating both repeated RGB and YUV work has an upper bound near 7.8% in the nested run; it is not a measured improvement or a sufficiently justified safe cutover.
+- The two unchanged production runs differ by 7.5%. Warm-up/thermal effects were not independently controlled. Do not label that difference a speedup.
+- Before/after optimization numbers and RED→GREEN fix evidence: **not applicable**, because the measured-stop route made no production change. New contract tests are GREEN on the original implementation; no failing-before or passing-after optimization result is claimed.
+- Proposal only: ask the user whether to investigate Android `MediaCodec`/`MediaMuxer` for a larger gain. No codec-path rewrite, quality change, dependency, resolution change or frame-rate change is authorized by this report.
+
+## Contract coverage and verification
+
+`Mp4ConversionTest` adds five runnable device tests, all passing on the unchanged implementation:
+
+1. Decodable red/blue frames, MP4 container, AVC/H.264, 30 fps sample timestamps, 65×35 input becoming 64×34, cumulative delay rounding, minimum 20 ms delay, missing-delay default 100 ms, and exact progress sequence.
+2. 1441×811 input capped to 1280×720 without changing frame rate or duration.
+3. Cancellation propagates the exact callback exception after the first source frame, stops further progress and finalizes only those encoded samples.
+4. A 600016 ms cumulative delay rounds to the allowed 18000 samples; the next minimum delay is rejected with the existing ten-minute error. The partial output retains all 18000 valid samples and only one progress callback.
+5. Empty metadata and missing ZIP entries retain their existing errors and produce no progress.
+
+The existing `UgoiraConverterTest` file and every assertion were left unchanged; all 12 tests passed. Combined device invocation: **OK (18 tests)**, comprising five new contract tests, 12 existing converter tests and one nested benchmark, in 93.775 seconds. The original four-conversion baseline invocation separately reported **OK (1 test)** in 356.817 seconds.
+
+Exact commands executed from the repository (environment prefixes shown explicitly):
+
+```sh
+env JAVA_HOME=/home/jhonan/.jdks/jbr-21.0.11 ANDROID_HOME=/home/jhonan/Android/Sdk ./gradlew :app:testDebugUnitTest --tests com.pixload.app.UgoiraConverterApiTest :app:assembleDebug :app:assembleDebugAndroidTest
+# BUILD SUCCESSFUL; two focused API tests completed.
+env JAVA_HOME=/home/jhonan/.jdks/jbr-21.0.11 ANDROID_HOME=/home/jhonan/Android/Sdk ./gradlew :app:assembleDebugAndroidTest --console=plain
+# BUILD SUCCESSFUL after contract tests, and again after nested profiling was added.
+env JAVA_HOME=/home/jhonan/.jdks/jbr-21.0.11 ANDROID_HOME=/home/jhonan/Android/Sdk ./gradlew :shared:testAndroidHostTest :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest --console=plain
+# BUILD SUCCESSFUL in foreground; final run reused up-to-date test results/APKs.
+```
+
+For the following commands, `ADB=/home/jhonan/Android/Sdk/platform-tools/adb` and `DEVICE=adb-ZY22H65ZBW-ja0hNt._adb-tls-connect._tcp` abbreviate the exact executable and serial used:
+
+```sh
+$ADB -s "$DEVICE" shell dumpsys activity services com.pixload.app
+# (nothing), inspected before installing the app and again before replacing the test APK.
+$ADB -s "$DEVICE" install -r app/build/outputs/apk/debug/app-debug.apk
+$ADB -s "$DEVICE" install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+# Success for both; later test-only replacement also reported Success.
+$ADB -s "$DEVICE" push /tmp/pixload-mp4-oLNE0b/hundred-jpeg.zip /data/local/tmp/pixload-mp4-oLNE0b.zip
+$ADB -s "$DEVICE" shell run-as com.pixload.app mkdir -p cache/mp4-oLNE0b
+$ADB -s "$DEVICE" shell run-as com.pixload.app cp /data/local/tmp/pixload-mp4-oLNE0b.zip cache/mp4-oLNE0b/hundred-jpeg.zip
+$ADB -s "$DEVICE" shell am instrument -w -r -e class com.pixload.app.Mp4BenchmarkTest -e mp4Fixture /data/user/0/com.pixload.app/cache/mp4-oLNE0b/hundred-jpeg.zip com.pixload.app.test/androidx.test.runner.AndroidJUnitRunner | tee /tmp/pixload-mp4-oLNE0b/baseline-instrumentation.txt
+# This installed version had only measureProductionAndPhases.
+$ADB -s "$DEVICE" shell am instrument -w -r -e class com.pixload.app.Mp4ConversionTest,com.pixload.app.UgoiraConverterTest,com.pixload.app.Mp4BenchmarkTest#measureEncodingBreakdown -e mp4Fixture /data/user/0/com.pixload.app/cache/mp4-oLNE0b/hundred-jpeg.zip com.pixload.app.test/androidx.test.runner.AndroidJUnitRunner | tee /tmp/pixload-mp4-oLNE0b/contract-and-nested-instrumentation.txt
+ffprobe -v error -select_streams v:0 -count_frames -show_entries format=format_name,duration:stream=codec_name,width,height,r_frame_rate,avg_frame_rate,duration,nb_read_frames -of json /tmp/pixload-mp4-oLNE0b/production-0.mp4
+```
+
+For future focused baseline runs, select `com.pixload.app.Mp4BenchmarkTest#measureProductionAndPhases`. Both benchmark methods are opt-in through `-e mp4Fixture`; without that argument they are skipped. The full-decode comparison ran `ffmpeg -v error -i <each retained MP4> -map 0:v:0 -f framemd5 -` and asserted identical hashes. The APKs were installed without accessing user data; no app reinstall interrupted a download service.
+
+## Review boundary, risk and pending work
+
+Changed paths are this report, the task log, `Mp4BenchmarkTest.java` and `Mp4ConversionTest.java`. All production files, existing tests, dependencies, GIF and gallery code remain untouched. Removing the two new test files and this report removes the investigation artifacts without changing runtime behavior. No Git operation or native review lifecycle was performed.
+
+Risk: the fixture is synthetic and evidence covers one phone, not real-world workloads or device compatibility. The nested sink phase includes muxing and cannot establish a pure H.264-only percentage. A different encoder would add hardware availability, color-format, timestamp/EOS, cancellation and error-behavior risks; its performance and compatibility remain unmeasured. Parent acceptance is complete; any user approval for a new encoder and the Git/review steps remain pending. Removing the two new test files and this report removes the investigation artifacts without changing runtime behavior.
+
+`skill_resolution`: the installed `ponytail`, `go-testing` and `cognitive-doc-design` skills were loaded through native `skill://` reads; testing patterns only were applied from `go-testing`. `mem_save` is unavailable (no mounted tool); discoveries are recorded here and in the task log. Context7 resolved Android and returned the official [MediaExtractor API](https://developer.android.com/reference/android/media/MediaExtractor); JCodec was not indexed, so the installed 0.2.5 source JARs supplied the exact encoding boundaries. No language servers are configured for this project.
