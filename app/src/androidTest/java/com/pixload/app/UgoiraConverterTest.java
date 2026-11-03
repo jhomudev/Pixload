@@ -207,12 +207,27 @@ public class UgoiraConverterTest {
             for (GifPreset preset : new GifPreset[]{GifPreset.FAST, GifPreset.BALANCED}) {
                 ByteArrayOutputStream output = new ByteArrayOutputStream();
                 UgoiraConverter.gif(archive, frames, output, (done, total) -> {}, preset);
-                byte[] digest = java.security.MessageDigest.getInstance("SHA-256").digest(output.toByteArray());
+                byte[] data = output.toByteArray();
+                Movie movie = Movie.decodeByteArray(data, 0, data.length);
+                assertTrue(movie != null);
+                assertEquals(64, movie.width());
+                assertEquals(8, movie.height());
+                assertEquals(100, movie.duration());
+                Bitmap decoded = Bitmap.createBitmap(movie.width(), movie.height(), Bitmap.Config.ARGB_8888);
+                java.nio.ByteBuffer pixels = java.nio.ByteBuffer.allocate(movie.width() * movie.height() * 4);
+                try {
+                    movie.setTime(0);
+                    movie.draw(new Canvas(decoded), 0, 0);
+                    for (int y = 0; y < movie.height(); y++) for (int x = 0; x < movie.width(); x++)
+                        pixels.putInt(decoded.getPixel(x, y));
+                } finally { decoded.recycle(); }
+                // Baseline decoded pixels, not file bytes: palette layout and LZW may change.
+                byte[] digest = java.security.MessageDigest.getInstance("SHA-256").digest(pixels.array());
                 StringBuilder hash = new StringBuilder();
                 for (byte value : digest) hash.append(String.format(java.util.Locale.ROOT, "%02x", value & 255));
                 assertEquals(preset == GifPreset.FAST
-                        ? "686d2788caf2c77de845809c2b827cc9dcf078c0a61aa83fcfbbf034ec1747a1"
-                        : "3a47b52ac68ca2e9f522e6f37dcfdc1243fa8ae0db0992db9241156678490728", hash.toString());
+                        ? "4b11c2ecb49a080386a5165ea8ebc45ededab9a37dee07cb963bf7a9cd3d3c6a"
+                        : "4f150c6c9249e8de8998e544792126882b01b4279e512c2f776e4dcd69896357", hash.toString());
             }
         } finally { archive.delete(); }
     }

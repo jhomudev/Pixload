@@ -6,14 +6,10 @@ import android.graphics.ImageDecoder
 import android.os.Build
 import com.pixload.shared.GifPreset
 import com.squareup.gifencoder.Color
-import com.squareup.gifencoder.ColorQuantizer
 import com.squareup.gifencoder.Ditherer
-import com.squareup.gifencoder.GifEncoder
 import com.squareup.gifencoder.HashMultiset
 import com.squareup.gifencoder.Image
-import com.squareup.gifencoder.ImageOptions
 import com.squareup.gifencoder.MedianCutQuantizer
-import com.squareup.gifencoder.Multiset
 import com.squareup.gifencoder.UniformQuantizer
 import org.json.JSONArray
 import java.io.ByteArrayOutputStream
@@ -21,10 +17,10 @@ import java.io.File
 import java.io.IOException
 import java.io.OutputStream
 import java.nio.ByteBuffer
-import java.util.concurrent.TimeUnit
+import java.util.IdentityHashMap
 import java.util.zip.ZipFile
 
-/** One decoded bitmap and one reusable ARGB buffer at a time; Square still owns its per-frame objects. */
+/** One decoded bitmap and reusable ARGB/index buffers; Square only builds the sampled palette. */
 internal object GifConversion {
     @JvmStatic
     fun convert(archive: File, frames: JSONArray, output: OutputStream,
@@ -57,13 +53,13 @@ internal object GifConversion {
                 samples.distinctElements.size <= 256 -> LinkedHashSet(samples.distinctElements)
                 else -> LinkedHashSet(MedianCutQuantizer.INSTANCE.quantize(samples, 256))
             }
-            val quantizer = FixedQuantizer(palette)
             val ditherer = PaletteLookupDitherer(palette, preset.diffuse, preset == GifPreset.QUALITY)
             val first = decode(zip, frames.getJSONObject(0).getString("file"), preset.maxWidth)
             val width = first.width
             val height = first.height
             val pixels = IntArray(width * height)
-            val encoder = GifEncoder(output, width, height, 0)
+            val indexed = ByteArray(width * height)
+            val encoder = FastGifEncoder(output, width, height, ditherer.paletteRgb())
             var elapsedMs = 0L
             var encodedCs = 0L
             var lastKeptMs = 0L
@@ -84,11 +80,8 @@ internal object GifConversion {
                         resized.getPixels(pixels, 0, width, 0, 0, width, height)
                         // Round the cumulative elapsed time, never individual frame delays.
                         val delayCs = (targetCs - encodedCs).coerceAtLeast(1).coerceAtMost(65535)
-                        // Dither here: the encoder would build a Color per pixel before dithering,
-                        // and it skips its own quantize and dither for an already palette-only image.
-                        encoder.addImage(ditherer.ditherPixels(pixels, width, height), ImageOptions()
-                            .setColorQuantizer(quantizer).setDitherer(ditherer)
-                            .setDelay(delayCs * 10, TimeUnit.MILLISECONDS))
+                        ditherer.ditherIndexed(pixels, width, height, indexed)
+                        encoder.addIndexedCentiseconds(indexed, delayCs.toInt())
                         encodedCs += delayCs
                         lastKeptMs = elapsedMs
                     } finally {
@@ -98,7 +91,7 @@ internal object GifConversion {
                 } else if (i == 0) first.recycle()
                 progress.update(i + 1, total)
             }
-            encoder.finishEncoding()
+            encoder.finish()
         }
     }
 
@@ -144,15 +137,14 @@ internal object GifConversion {
     }
 }
 
-private class FixedQuantizer(private val palette: MutableSet<Color>) : ColorQuantizer {
-    override fun quantize(originalColors: Multiset<Color>, maxColorCount: Int): MutableSet<Color> = palette
-}
-
 /** Shared RGB lookup; quality refines each cell against its possible nearest colors. */
 internal class PaletteLookupDitherer(palette: Set<Color>, private val diffuse: Boolean,
                                     private val precise: Boolean) : Ditherer {
     private val lookup = Array(32768) { Color.BLACK }
     private val entries = palette.toTypedArray()
+    private val indices = IdentityHashMap<Color, Int>().apply {
+        this@PaletteLookupDitherer.entries.forEachIndexed { i, color -> put(color, i) }
+    }
     private val channels = Array(entries.size) { i ->
         IntArray(3) { c -> (entries[i].getComponent(c) * 255).toInt() }
     }
@@ -209,17 +201,31 @@ internal class PaletteLookupDitherer(palette: Set<Color>, private val diffuse: B
     }
 
     override fun dither(image: Image, newColors: MutableSet<Color>): Image =
-        ditherGrid(image.getWidth(), image.getHeight(), null, image)
+        ditherGrid(image.getWidth(), image.getHeight(), null, image, null)!!
 
     /**
      * Dithers raw ARGB pixels straight to palette colors. The encoder would otherwise build a Color
      * per pixel only for [dither] to read it back, which is a large part of the per-frame cost.
      */
     fun ditherPixels(pixels: IntArray, width: Int, height: Int): Image =
-        ditherGrid(width, height, pixels, null)
+        ditherGrid(width, height, pixels, null, null)!!
 
-    private fun ditherGrid(width: Int, height: Int, pixels: IntArray?, image: Image?): Image {
-        val result = Array(height) { Array(width) { Color.BLACK } }
+    fun paletteRgb(): ByteArray = ByteArray(768).also { rgb ->
+        entries.forEachIndexed { i, color ->
+            for (c in 0..2) rgb[i * 3 + c] = (color.getComponent(c) * 255).toInt().toByte()
+        }
+    }
+
+    @JvmOverloads
+    fun ditherIndexed(pixels: IntArray, width: Int, height: Int,
+                      output: ByteArray = ByteArray(width * height)): ByteArray {
+        require(pixels.size == width * height && output.size == pixels.size)
+        ditherGrid(width, height, pixels, null, output)
+        return output
+    }
+
+    private fun ditherGrid(width: Int, height: Int, pixels: IntArray?, image: Image?, indexed: ByteArray?): Image? {
+        val result = if (indexed == null) Array(height) { Array(width) { Color.BLACK } } else null
         var current = FloatArray((width + 2) * 3)
         var next = FloatArray((width + 2) * 3)
         for (y in 0 until height) {
@@ -247,7 +253,8 @@ internal class PaletteLookupDitherer(palette: Set<Color>, private val diffuse: B
                 val blue = (sourceBlue + current[pos + 2] + rounding).toInt().coerceIn(0, 255)
                 val cell = ((red shr 3) shl 10) or ((green shr 3) shl 5) or (blue shr 3)
                 val chosen = if (precise) nearest(red, green, blue, cell) else lookup[cell]
-                result[y][x] = chosen
+                if (indexed != null) indexed[y * width + x] = indices[chosen]!!.toByte()
+                else result!![y][x] = chosen
                 if (diffuse) for (c in 0..2) {
                     val component = chosen.getComponent(c) * 255
                     val error = (when (c) { 0 -> red; 1 -> green; else -> blue }) -
@@ -265,6 +272,6 @@ internal class PaletteLookupDitherer(palette: Set<Color>, private val diffuse: B
             next = previous
             next.fill(0f)
         }
-        return Image.fromColors(result)
+        return result?.let { Image.fromColors(it) }
     }
 }

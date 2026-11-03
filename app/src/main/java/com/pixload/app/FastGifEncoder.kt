@@ -7,8 +7,8 @@ import java.io.OutputStream
 import java.util.Arrays
 
 /** Fast RGB 3:3:2 indexing with per-frame color averages and a reusable LZW dictionary. */
-internal class FastGifEncoder @Throws(IOException::class) constructor(output: OutputStream, private val width: Int,
-                                                                    private val height: Int) {
+internal class FastGifEncoder @JvmOverloads @Throws(IOException::class) constructor(output: OutputStream, private val width: Int,
+                                                                    private val height: Int, palette: ByteArray? = null) {
     private val out: OutputStream
     private val pixels: IntArray
     private val indexed: ByteArray
@@ -26,6 +26,7 @@ internal class FastGifEncoder @Throws(IOException::class) constructor(output: Ou
         if (width < 1 || height < 1 || width > 65535 || height > 65535) {
             throw IOException("Dimensiones de GIF no válidas.")
         }
+        if (palette != null && palette.size != 768) throw IOException("Invalid GIF palette size.")
         out = BufferedOutputStream(output, 65536)
         pixels = IntArray(width * height)
         indexed = ByteArray(width * height)
@@ -36,7 +37,7 @@ internal class FastGifEncoder @Throws(IOException::class) constructor(output: Ou
         out.write(0xf7) // Global 256-color table, 8-bit color resolution.
         out.write(0)
         out.write(0)
-        for (i in 0 until 256) {
+        if (palette != null) out.write(palette) else for (i in 0 until 256) {
             out.write((i ushr 5) * 255 / 7)
             out.write(((i ushr 2) and 7) * 255 / 7)
             out.write((i and 3) * 85)
@@ -90,6 +91,19 @@ internal class FastGifEncoder @Throws(IOException::class) constructor(output: Ou
     @Throws(IOException::class)
     private fun writeFrame(frame: ByteArray, delayMillis: Int, palette: ByteArray?) {
         val delay = maxOf(2, minOf(65535, Math.round(delayMillis / 10f)))
+        writeIndexedFrame(frame, delay, palette)
+    }
+
+    /** Production timing is already rounded cumulatively; do not apply the legacy 2cs floor. */
+    @Throws(IOException::class)
+    fun addIndexedCentiseconds(frame: ByteArray, delay: Int) {
+        if (frame.size != indexed.size) throw IOException("Tamaño de fotograma distinto.")
+        if (delay !in 1..65535) throw IOException("Invalid GIF frame delay.")
+        if (Thread.currentThread().isInterrupted) throw IOException("Conversión interrumpida")
+        writeIndexedFrame(frame, delay, null, cancellable = true)
+    }
+
+    private fun writeIndexedFrame(frame: ByteArray, delay: Int, palette: ByteArray?, cancellable: Boolean = false) {
         out.write(byteArrayOf(0x21, 0xf9.toByte(), 4, 0, delay.toByte(), (delay ushr 8).toByte(), 0, 0))
         out.write(0x2c)
         shortValue(0)
@@ -99,7 +113,7 @@ internal class FastGifEncoder @Throws(IOException::class) constructor(output: Ou
         out.write(if (palette == null) 0 else 0x87) // Optional 256-color local table.
         if (palette != null) out.write(palette)
         out.write(8) // Minimum LZW code size for the 256-color palette.
-        encode(frame)
+        encode(frame, cancellable)
     }
 
     @Throws(IOException::class)
@@ -109,7 +123,7 @@ internal class FastGifEncoder @Throws(IOException::class) constructor(output: Ou
     }
 
     @Throws(IOException::class)
-    private fun encode(frame: ByteArray) {
+    private fun encode(frame: ByteArray, cancellable: Boolean) {
         val bits = Bits()
         var size = 9
         var next = END + 1
@@ -117,6 +131,7 @@ internal class FastGifEncoder @Throws(IOException::class) constructor(output: Ou
         bits.write(CLEAR, size)
         var prefix = frame[0].toInt() and 255
         for (i in 1 until frame.size) {
+            if (cancellable && i and 4095 == 0 && Thread.currentThread().isInterrupted) throw IOException("Conversión interrumpida")
             val symbol = frame[i].toInt() and 255
             val key = (prefix shl 8) or symbol
             var slot = (key * 0x9e3779b9.toInt()) ushr 19

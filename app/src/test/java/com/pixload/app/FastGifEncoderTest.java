@@ -11,6 +11,33 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 public class FastGifEncoderTest {
+    @Test public void legacyIndexedCallKeepsItsInterruptedCallerBehavior() throws Exception {
+        byte[][] results = new byte[2][];
+        for (int n = 0; n < 2; n++) {
+            ByteArrayOutputStream output = new ByteArrayOutputStream();
+            FastGifEncoder encoder = new FastGifEncoder(output, 128, 64);
+            if (n == 1) Thread.currentThread().interrupt();
+            try { encoder.addIndexed(new byte[8192], 100); }
+            finally { Thread.interrupted(); }
+            encoder.finish();
+            results[n] = output.toByteArray();
+        }
+        org.junit.Assert.assertArrayEquals(results[0], results[1]);
+    }
+
+    @Test public void productionIndexedCallStillCancelsInsideLzw() throws Exception {
+        java.io.OutputStream output = new java.io.OutputStream() {
+            @Override public void write(int value) { Thread.currentThread().interrupt(); }
+        };
+        FastGifEncoder encoder = new FastGifEncoder(output, 300, 300, new byte[768]);
+        byte[] frame = new byte[90000];
+        new java.util.Random(51).nextBytes(frame);
+        try {
+            assertEquals("Conversión interrumpida", org.junit.Assert.assertThrows(java.io.IOException.class,
+                    () -> encoder.addIndexedCentiseconds(frame, 10)).getMessage());
+        } finally { Thread.interrupted(); }
+    }
+
     @Test public void writesAnimatedGifWithIndexedFrames() throws Exception {
         ByteArrayOutputStream output = new ByteArrayOutputStream();
         FastGifEncoder encoder = new FastGifEncoder(output, 256, 256);
