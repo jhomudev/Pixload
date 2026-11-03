@@ -1,6 +1,6 @@
 # MP4 hardware encoding with a JCodec fallback
 
-`UgoiraConverter.mp4` now prefers Android hardware AVC encoding through `MediaCodec` and `MediaMuxer`, with the existing JCodec encoder retained for clean restarts. The authorized phone shows a material improvement on the retained synthetic fixture, well beyond observed drift. The original five MP4 contract tests, six hardware/fallback tests, twelve existing converter tests and two incorporated independent probe classes pass. Parent acceptance and native review remain T6, not worker-owned.
+`UgoiraConverter.mp4` now prefers Android hardware AVC encoding through `MediaCodec` and `MediaMuxer`, with the existing JCodec encoder retained for clean restarts. The authorized phone shows a material improvement on the synthetic fixture, well beyond observed drift. The original five MP4 contract tests, six hardware/fallback tests, twelve existing converter tests and two incorporated independent probe classes pass. Parent acceptance and native review are complete for implementation commit `3ce81de`, on the tested device only.
 
 ## Implementation and review boundary
 
@@ -139,3 +139,11 @@ The prior measured-stop investigation made no production optimization. Its direc
 - Parent owns Git, independent verification, native review and T6 acceptance. The worker performed no Git operation, started no agents and did not invoke a review lifecycle.
 
 `skill_resolution`: installed `ponytail`, `cognitive-doc-design` and `work-unit-commits` were loaded through native `skill://` reads before task work. `find-docs` and `context7-mcp` were also loaded; Context7 resolved official Android Developers documentation and confirmed EOS/configuration rules. `mem_save` is not mounted, so discoveries are recorded here and in `odd/tasks/mp4-conversion-performance.md`. No Kotlin language server is available; the references request reported that limitation and callers were located with a scoped search.
+
+## Parent acceptance and evidence lifecycle
+
+The parent repeated the full Gradle command successfully (cached JVM/APK tasks) and the five-class device suite: **25 tests passed in 16.608 s**. An independent verifier compared baseline `2ee2b0f` and candidate in isolated scratch trees and reproduced no change-caused functional blocker. The repeated paired benchmark measured JCodec/hardware/hardware/JCodec at **87990/9490/9460/86345 ms**, corresponding to paired ratios **9.27x and 9.13x** on this phone, not a universal speed guarantee.
+
+All four native review lenses approved the frozen implementation; its exact acknowledgement burned authority for target `sha256:925e5548d66c77cf1bb0aad803ec370cd764a29ca6ef211a1759318b701063c5`. Commit `3ce81de` retains those exact reviewed bytes. Non-blocking advisories identify a shared FPS constant, a benchmark label that requests rather than proves hardware completion, incomplete deterministic alternate-header coverage, hardware test prerequisites and observational cases in the independent probe matrix. Existing assertion-based contract tests still pass; these advisories are not claims of compatibility on untested devices and do not reopen the review.
+
+Scratch paths and script commands above are historical evidence locations, not shipped files. After acceptance the parent removes temporary host scratch, synthetic device MP4s and the deployment ZIP. Regenerating the described corpus requires re-uploading a synthetic fixture before the opt-in benchmark; the exact measured ZIP hash identifies the historical run. No runtime source or APK is changed by this documentation/cleanup. Other vendors/API levels, real-artwork quality and memory/controlled thermal profiling remain unverified.
