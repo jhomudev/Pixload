@@ -103,6 +103,7 @@ open class MainActivity : Activity() {
     private var selectedPages: BooleanArray? = null
     private var galleryEntry: GalleryStore.Entry? = null
     private var galleryCache: List<GalleryStore.Entry>? = null
+    private var galleryRowHeights: GalleryRenderWindow.RowHeights? = null
     private var galleryCacheError: String? = null
     private var galleryCacheLoading = false
     private val hiddenGalleryUris = HashSet<String>()
@@ -1110,7 +1111,10 @@ open class MainActivity : Activity() {
             target.addView(empty)
             return
         }
-        for (i in entries.indices step 2) {
+        val heights = galleryRowHeights?.takeIf { it.entries == entries }
+            ?: GalleryRenderWindow.RowHeights(entries).also { galleryRowHeights = it }
+        val window = GalleryRenderWindow(this, heights, galleryScrollY, createRow = { rowIndex ->
+            val i = rowIndex * 2
             val row = Ui.row(this)
             row.gravity = Gravity.TOP
             for (j in i until minOf(i + 2, entries.size)) {
@@ -1173,9 +1177,12 @@ open class MainActivity : Activity() {
                 if (j == i) params.rightMargin = Ui.dp(this, 8f)
                 row.addView(card, params)
             }
-            target.addView(row)
-            Ui.gap(target, this, 8)
-        }
+            val block = Ui.column(this)
+            block.addView(row)
+            Ui.gap(block, this, 8)
+            block
+        }, rowsReady = { galleryImages.loadVisible() })
+        target.addView(window)
     }
 
     private fun loadGalleryEntry(entry: GalleryStore.Entry, index: Int) {
