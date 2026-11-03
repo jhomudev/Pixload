@@ -1,5 +1,5 @@
 # Large-gallery rendering
-Reduce large-gallery rendering work while preserving behavior and the completed GIF/MP4 implementation. Base: 18dd60d; branch: feature/large-gallery-rendering. Delivery: ask-on-risk, initially one coherent unit (~350 authored lines forecast); no push/PR.
+Reduce large-gallery rendering work while preserving behavior and the completed GIF/MP4 implementation. Base: 18dd60d; branch: feature/large-gallery-rendering. Delivery: ask-on-risk; the single coherent unit measured 697 authored changed lines, above the advisory 400, and no chain strategy is applied without user choice. No push/PR authorized.
 Runner: JDK 21 / SDK 35; app/shared JVM tests, debug APK builds and isolated Android gallery tests/benchmark where available.
 
 ## Specs
