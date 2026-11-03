@@ -3,9 +3,7 @@ package com.pixload.app
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import com.pixload.shared.GifPreset
-import org.jcodec.api.android.AndroidSequenceEncoder
 import org.json.JSONArray
-import org.json.JSONObject
 import java.io.File
 import java.io.IOException
 import java.io.OutputStream
@@ -16,8 +14,6 @@ object UgoiraConverter {
         @Throws(IOException::class)
         fun update(done: Int, total: Int)
     }
-
-    private const val FPS = 30
 
     @JvmStatic
     @Throws(Exception::class)
@@ -34,40 +30,7 @@ object UgoiraConverter {
     @JvmStatic
     @Throws(Exception::class)
     fun mp4(archive: File, frames: JSONArray, output: File, progress: Progress) {
-        ZipFile(archive).use { zip ->
-            if (frames.length() == 0) throw IOException("La animación no contiene fotogramas.")
-            val first = decode(zip, frames.getJSONObject(0).getString("file"), 1280)
-            // H.264 requires even dimensions; animations with odd dimensions are scaled by at most one pixel.
-            val width = first.width - first.width % 2
-            val height = first.height - first.height % 2
-            if (width < 2 || height < 2) throw IOException("Fotogramas demasiado pequeños para MP4.")
-            val encoder = AndroidSequenceEncoder.createSequenceEncoder(output, FPS)
-            var duration = 0L
-            var encoded = 0L
-            try {
-                for (i in 0 until frames.length()) {
-                    val frame = frames.getJSONObject(i)
-                    val bitmap = if (i == 0) first else decode(zip, frame.getString("file"), 1280)
-                    val resized = if (bitmap.width == width && bitmap.height == height) bitmap
-                    else Bitmap.createScaledBitmap(bitmap, width, height, true)
-                    try {
-                        duration += maxOf(20, frame.optInt("delay", 100)).toLong()
-                        val needed = maxOf(1L, Math.round(duration * FPS / 1000.0))
-                        if (needed > 18000) throw IOException("Animación demasiado larga para convertir a MP4 (máximo 10 minutos).")
-                        while (encoded < needed) {
-                            encoder.encodeImage(resized)
-                            encoded++
-                        }
-                    } finally {
-                        if (resized !== bitmap) resized.recycle()
-                        bitmap.recycle()
-                    }
-                    progress.update(i + 1, frames.length())
-                }
-            } finally {
-                encoder.finish()
-            }
-        }
+        Mp4Conversion.convert(archive, frames, output, progress, ::decode)
     }
 
     @Throws(IOException::class)

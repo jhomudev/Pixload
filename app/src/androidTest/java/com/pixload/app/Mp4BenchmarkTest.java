@@ -26,6 +26,34 @@ import static org.junit.Assert.assertEquals;
 /** Opt-in benchmark: pass -e mp4Fixture /path/to/synthetic/zip with frames.json. */
 @RunWith(AndroidJUnit4.class)
 public class Mp4BenchmarkTest {
+    @Test public void measureHardwareAgainstSoftware() throws Exception {
+        String path = InstrumentationRegistry.getArguments().getString("mp4Fixture");
+        org.junit.Assume.assumeNotNull(path);
+        File archive = new File(path);
+        JSONArray frames;
+        try (ZipFile zip = new ZipFile(archive);
+             java.io.InputStream input = zip.getInputStream(zip.getEntry("frames.json"))) {
+            frames = new JSONArray(new String(input.readAllBytes(), StandardCharsets.UTF_8));
+        }
+        // Software/hardware, then hardware/software exposes order-dependent drift.
+        for (int run = 0; run < 4; run++) {
+            boolean hardware = run == 1 || run == 2;
+            File output = new File(archive.getParentFile(), (hardware ? "hardware-" : "software-") + run + ".mp4");
+            int[] callbacks = {0};
+            UgoiraConverter.Progress progress = (done, total) -> {
+                assertEquals(++callbacks[0], done);
+                assertEquals(frames.length(), total);
+            };
+            long start = System.nanoTime();
+            if (hardware) UgoiraConverter.mp4(archive, frames, output, progress);
+            else Mp4HardwareEncoderTest.software(archive, frames, output, progress);
+            long elapsed = System.nanoTime() - start;
+            assertEquals(frames.length(), callbacks[0]);
+            report("paired run=" + run + " path=" + (hardware ? "hardware" : "jcodec")
+                    + " totalMs=" + ms(elapsed) + " bytes=" + output.length());
+        }
+    }
+
     @Test public void measureProductionAndPhases() throws Exception {
         String path = InstrumentationRegistry.getArguments().getString("mp4Fixture");
         org.junit.Assume.assumeNotNull(path);
