@@ -2,6 +2,8 @@
 
 Latest measurement-only follow-up: [QUALITY GIF with 1080p/4K synthetic sources](GIF_QUALITY_PROFILE.md). Its instrumented processes reported a 256MiB heap limit; older heap figures below are historical, not current device guarantees.
 
+Concurrency follow-up: [closed partial profile and sequential palette-variation control](GIF_CONCURRENT_PROFILE.md). Exact decoded parity failed; the follow-up does not establish a concurrency regression or authorize an app change.
+
 Equipo: motorola edge 30 pro, heap máximo Android 512 MiB. Las pruebas instrumentadas generan JPEG a partir de gradientes RGB; **no** son descargas de Pixiv ni una evaluación visual de una obra real. El ZIP y los GIF se escriben en caché durante los benchmarks; la aplicación sigue guardando descargas en la carpeta SAF elegida. El codificador corre en el ejecutor de `DownloadService`, no en el hilo principal. Se usó `System.nanoTime()` para medir cada fase de una copia *solo de prueba* del código fuente de Square gifencoder 0.10.1 (`app/src/androidTest/java/com/pixload/bench/square/`).
 
 ## Indexed LUT index cache — accepted measurement (2026-11-04)
