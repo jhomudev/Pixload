@@ -145,6 +145,7 @@ internal class PaletteLookupDitherer(palette: Set<Color>, private val diffuse: B
     private val indices = IdentityHashMap<Color, Int>().apply {
         this@PaletteLookupDitherer.entries.forEachIndexed { i, color -> put(color, i) }
     }
+    private val indexedLookup = if (!precise && entries.isNotEmpty()) ByteArray(32768) else null
     private val channels = Array(entries.size) { i ->
         IntArray(3) { c -> (entries[i].getComponent(c) * 255).toInt() }
     }
@@ -163,6 +164,7 @@ internal class PaletteLookupDitherer(palette: Set<Color>, private val diffuse: B
                 val error = dr * dr + dg * dg + db * db
                 if (error < closest) { closest = error; lookup[i] = color }
             }
+            indexedLookup?.set(i, indices[lookup[i]]!!.toByte())
         }
     }
 
@@ -253,7 +255,7 @@ internal class PaletteLookupDitherer(palette: Set<Color>, private val diffuse: B
                 val blue = (sourceBlue + current[pos + 2] + rounding).toInt().coerceIn(0, 255)
                 val cell = ((red shr 3) shl 10) or ((green shr 3) shl 5) or (blue shr 3)
                 val chosen = if (precise) nearest(red, green, blue, cell) else lookup[cell]
-                if (indexed != null) indexed[y * width + x] = indices[chosen]!!.toByte()
+                if (indexed != null) indexed[y * width + x] = indexedLookup?.get(cell) ?: indices[chosen]!!.toByte()
                 else result!![y][x] = chosen
                 if (diffuse) for (c in 0..2) {
                     val component = chosen.getComponent(c) * 255

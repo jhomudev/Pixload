@@ -2,6 +2,30 @@
 
 Equipo: motorola edge 30 pro, heap máximo Android 512 MiB. Las pruebas instrumentadas generan JPEG a partir de gradientes RGB; **no** son descargas de Pixiv ni una evaluación visual de una obra real. El ZIP y los GIF se escriben en caché durante los benchmarks; la aplicación sigue guardando descargas en la carpeta SAF elegida. El codificador corre en el ejecutor de `DownloadService`, no en el hilo principal. Se usó `System.nanoTime()` para medir cada fase de una copia *solo de prueba* del código fuente de Square gifencoder 0.10.1 (`app/src/androidTest/java/com/pixload/bench/square/`).
 
+## Indexed LUT index cache — candidate measurement (2026-11-04)
+
+**Candidate, pending native assessment:** cache the existing palette index once per non-precise LUT cell instead of looking it up by `Color` identity for every output pixel. The selected colors, diffusion arithmetic, QUALITY precise path and GIF encoder are unchanged. Empty palettes retain the old fallback behavior. This adds a 32 KiB byte table for non-precise nonempty palettes; it is not a memory-saving change.
+
+The parent authored the four-line diff; oh-my-pi performed the bounded measurement/functional action without editing production. Three alternating baseline/candidate pairs used the saved, hash-verified baseline application APK and a fixed common diagnostic test APK. The synthetic input and output hashes match the phase-profile corpus below.
+
+| Pair | Baseline conversion (ms) | Candidate conversion (ms) | Time reduction |
+| --- | ---: | ---: | ---: |
+| 1 | 2821 | 2196 | 22.16% |
+| 2 | 2804 | 2177 | 22.36% |
+| 3 | 2794 | 2199 | 21.30% |
+
+Medians: **2804 / 2196 ms**, a **21.68% time reduction** (1.277x baseline/candidate ratio). Within-series max/min drift: 0.97% / 1.01%, below the observed paired improvement. This is not a universal speed guarantee: one Motorola edge 30 pro, three pairs and a native-size 480x270 BALANCED synthetic corpus, without controlled thermal/JIT/CPU state. FAST, QUALITY, downscaled inputs and real artwork have no performance claim.
+
+All six canonical inputs matched `392e4327a7eb65a74c798ae3dee039d36605a7b3a089e9daf53ec625df3c5416`. All six GIFs were byte-identical, SHA-256 `64181c2ab5d299b1bc100f9c5b972c41e58e2f61a4d5a56defe3e0fc16c28475`, 5,654,550 bytes, 480x270, 100 images, 10 seconds, 10cs delays and infinite looping. Progress was exactly `(0,100)` through `(100,100)`. Baseline/candidate full decodes and frame/timestamp digests matched. Sampled PSS ranges overlapped (56,078-56,098 / 56,051-56,190 KiB); no memory improvement is claimed.
+
+The baseline app APK hash was `15e7563663e34f44645a960ae09dab69b35d5f30233e394877bd047c8847300b`; the candidate/final app was `f2abc3bc3784cf54327f9346d64966c2ac87fc79f01a4824963c539f2c1c6871`. Temporary benchmark diagnostics were restored byte-for-byte before final checks. The final full Gradle command below passed in 3s (7 executed / 78 up-to-date), with 125 app JVM tests executed and shared tests cached. The restored device contract command passed 16 tests in 3.3s. The parent separately repeated the eight focused JVM tests successfully in 2s. No deterministic wall-clock RED test is claimed for a performance-only change with unchanged output expectations.
+
+The phone has the diagnostic-free candidate and test APK installed. Nine installs all succeeded with inactive-service guards. Host evidence remains in `/tmp/opencode/gif-index-cache-40c8pm/`, including baseline/candidate APKs, common diagnostics, six ZIP/GIF pairs, command logs, fixture/output validation and exact synthetic device paths in `measurements.json`. Risk: item 3, because the changed helper also serves non-indexed dithering. No additional optimization or tuning loop was performed.
+
+Independent verification compared baseline `c8f64cc` and candidate in fresh isolated scratch copies, with offline dependencies and isolated HOME/cache/temp directories. All eight existing focused JVM tests and two independent probes passed in both copies. The probes cover the three dither entry points, diffuse/precise combinations, palette sizes 1/2/16/256, fractional colors, ties, all 32768 cells, unsigned index 255, two-frame writer integration, input immutability, rejected shapes and interruption. Both implementations produced matrix digest `e0dd60af9fa23e5938d2a04fc37081a3e71662fcf36101b3ecba97ecb77e8565`; the ported regression test asserts this captured digest without reading Git history. Empty-palette rejection already occurred on the baseline and is preserved, not repaired. No change-caused runtime blocker was reproduced. The verifier's concurrent-document attribution note was resolved: the parent added the candidate measurement section during verification; the runtime patch stayed identical. The parent ported the probes and ran all ten focused tests successfully. Verifier scratch: `/tmp/opencode/gif-index-verifier-crSR5Q/`. Native candidate review remains separate.
+
+After porting the probes, the parent full Gradle command passed in 3s (2 executed / 83 up-to-date), with 127 app JVM results and no failures/errors/skips; shared host tests remained cached. The parent repeated the 16 device contract tests successfully in 2.935s. APK hashes still match the measured candidate and diagnostic-free test APK. No production source changed after the benchmark or independent runtime comparison.
+
 ## Current indexed pipeline — phase attribution (2026-11-04)
 
 **Decision:** investigate one exact-output indexed-dither optimization next, not another encoder rewrite. On the corpus below, `ditherIndexed` accounts for 59.48% of measured conversion time. This is phase attribution, **not a delivered speedup** or proof that a particular statement inside the dither loop dominates.
