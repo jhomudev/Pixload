@@ -2,6 +2,83 @@
 
 Equipo: motorola edge 30 pro, heap máximo Android 512 MiB. Las pruebas instrumentadas generan JPEG a partir de gradientes RGB; **no** son descargas de Pixiv ni una evaluación visual de una obra real. El ZIP y los GIF se escriben en caché durante los benchmarks; la aplicación sigue guardando descargas en la carpeta SAF elegida. El codificador corre en el ejecutor de `DownloadService`, no en el hilo principal. Se usó `System.nanoTime()` para medir cada fase de una copia *solo de prueba* del código fuente de Square gifencoder 0.10.1 (`app/src/androidTest/java/com/pixload/bench/square/`).
 
+## Current indexed pipeline — phase attribution (2026-11-04)
+
+**Decision:** investigate one exact-output indexed-dither optimization next, not another encoder rewrite. On the corpus below, `ditherIndexed` accounts for 59.48% of measured conversion time. This is phase attribution, **not a delivered speedup** or proof that a particular statement inside the dither loop dominates.
+
+Baseline: `446b652`, branch `feature/gif-indexed-phase-profile`, Motorola edge 30 pro. The earlier Fase 0/1 tables below describe historical Square paths, not the current indexed writer. The accepted writer's earlier 100-frame totals were 2840/2797/2823 ms (`odd/tasks/indexed-gif-writer.md`); this run establishes current phase evidence.
+
+### Comparable inputs and outputs
+
+Only `GifPhase1BenchmarkTest#benchmarkHundredJpegFrames` ran: 100 synthetic JPEGs, 480 × 270, JPEG quality 88, changing gradients, 100 ms per frame, BALANCED. Six separate instrumentation processes ran in order: three with unchanged production source, then three with temporary timers inside the existing `GifConversion.convert`. Both series used identical temporary benchmark diagnostics **outside** the conversion timer for input hashing, output hashing and decoded dimensions/duration. No copied conversion implementation, algorithm, preset, callback or exception changes were used.
+
+Every run produced input identity `392e4327a7eb65a74c798ae3dee039d36605a7b3a089e9daf53ec625df3c5416`, defined as SHA-256 of UTF-8 `frames.toString()` followed by the ordered 32-byte SHA-256 digest of each JPEG. All six ZIPs were retained and independently rehashed on the host with reconstructed `frames.json`; filenames alone were not used as evidence. ZIP container hashes differ, but ordered JPEG content and delays match.
+
+All six output GIFs have SHA-256 `64181c2ab5d299b1bc100f9c5b972c41e58e2f61a4d5a56defe3e0fc16c28475`, 5,654,550 bytes, final progress 100, decoded dimensions 480 × 270 and duration 10,000 ms. Host ffprobe counted 100 decoded frames; full FFmpeg decoding succeeded. A GIF block inspection required 100 images, every delay 10 cs and a NETSCAPE infinite-loop extension. Byte equality extends those checks to all six retained outputs. It does not establish artwork fidelity. Historical Square palette ordering may differ between processes; it did **not** vary in this series.
+
+| Run | Process PID | Benchmark elapsed (ms) | Sampled peak PSS (KiB) | Sampled peak heap capacity (KiB) |
+| --- | ---: | ---: | ---: | ---: |
+| Unprobed 1 | 19855 | 2802 | 57707 | 27508 |
+| Unprobed 2 | 20136 | 2853 | 57102 | 27508 |
+| Unprobed 3 | 20278 | 2785 | 56933 | 27508 |
+| Probed 1 | 20789 | 2812 | 56735 | 27508 |
+| Probed 2 | 20908 | 2785 | 56714 | 27508 |
+| Probed 3 | 20973 | 2814 | 56696 | 27508 |
+
+Unprobed/probed medians: 2802/2812 ms, a +0.36% observed difference. Within-series max/min drift: 2.44%/1.04%. The difference is smaller than observed variation; ordered, non-interleaved series and uncontrolled thermal/JIT/GC state do not isolate timer overhead. No performance or memory improvement is claimed from the probes.
+
+### Current phase boundaries
+
+Nanosecond totals were accumulated around existing statements, then converted to milliseconds below. Shares use summed phase time divided by summed inner conversion time across the three probed runs.
+
+| Boundary | Probed 1 (ms) | Probed 2 (ms) | Probed 3 (ms) | Share |
+| --- | ---: | ---: | ---: | ---: |
+| Sample selection, JPEG decode, pixel sampling and multiset | 67.040 | 63.004 | 63.144 | 2.33% |
+| Quantizer selection and palette construction | 367.975 | 371.496 | 372.337 | 13.39% |
+| `PaletteLookupDitherer` / LUT construction | 211.250 | 212.067 | 211.560 | 7.65% |
+| First + loop decode / resize / `getPixels` | 141.797 | 137.354 | 143.832 | 5.09% |
+| `ditherIndexed` | 1653.954 | 1633.297 | 1650.877 | 59.48% |
+| Encoder/palette setup + indexed frames + finish/flush | 323.869 | 322.218 | 325.278 | 11.70% |
+| Inner residual | 10.309 | 9.621 | 10.561 | 0.37% |
+| Inner conversion total | 2776.195 | 2749.057 | 2777.588 | 100% |
+
+The inner residual is total minus the six measured boundaries; it includes ZIP setup/close, buffer allocation, frame bookkeeping, bitmap recycling, progress and timer bookkeeping. Benchmark elapsed additionally includes dispatch/stream handling, the phase log and joining the existing memory sampler; its 35.8–36.4 ms difference from the inner total is not another identified conversion phase. Writer time includes LZW and buffered output, not pure compression CPU. No allocation profiler or nested dither profile was run.
+
+**Single next bounded experiment, requiring parent authorization:** precompute the palette index of each LUT cell and use it instead of the per-pixel `IdentityHashMap<Color, Int>` lookup for non-precise indexed dithering. Keep the selected `Color`, palette order, floating-point arithmetic, diffusion order, QUALITY nearest-color path, timing and cancellation unchanged. Narrow proposed production surface: `PaletteLookupDitherer` in `GifConversion.kt`; use the existing dither/writer contracts plus paired production benchmark and decoded-output comparisons. The map's share of the measured dither phase is **unknown**; this is a testable small candidate, not a promised gain. Reject it if output changes or the win is indistinguishable from run variation. No optimization was implemented in this unit.
+
+Limits: one phone and one native-size BALANCED corpus; no QUALITY/FAST phase attribution, large-source ImageDecoder/downscale path, real Pixiv work, provider/SAF I/O or vendor comparison. Input hashing warms file access before both series. PSS is sampled every 20 ms and may miss peaks; `peakHeapKb` is `Runtime.totalMemory()` heap capacity, not live objects, allocation volume or guaranteed peak memory. Existing JVM/device contracts remain the behavior evidence outside this fixture.
+
+### Commands, artifacts and restoration
+
+Toolchain: `JAVA_HOME=/home/jhonan/.jdks/jbr-21.0.11`, `ANDROID_HOME=/home/jhonan/Android/Sdk`; no local paths were added to Gradle. Commands ran foreground; every APK install was preceded by `dumpsys activity services com.pixload.app` reporting `(nothing)`. All six installs reported `Success`; no clear/uninstall/force-stop was used.
+
+```sh
+export JAVA_HOME=/home/jhonan/.jdks/jbr-21.0.11
+export ANDROID_HOME=/home/jhonan/Android/Sdk
+ADB="$ANDROID_HOME/platform-tools/adb"
+DEVICE=adb-ZY22H65ZBW-ja0hNt._adb-tls-connect._tcp
+./gradlew :shared:testAndroidHostTest :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest --console=plain
+# Repeat this guard immediately before EACH install; stop unless it reports (nothing).
+"$ADB" -s "$DEVICE" shell dumpsys activity services com.pixload.app
+"$ADB" -s "$DEVICE" install -r app/build/outputs/apk/debug/app-debug.apk
+"$ADB" -s "$DEVICE" shell dumpsys activity services com.pixload.app
+"$ADB" -s "$DEVICE" install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+# One invocation per process; three unchanged-production and three phase-probed runs.
+"$ADB" -s "$DEVICE" shell am instrument -w -r -e class com.pixload.app.GifPhase1BenchmarkTest#benchmarkHundredJpegFrames com.pixload.app.test/androidx.test.runner.AndroidJUnitRunner
+"$ADB" -s "$DEVICE" logcat -d -v threadtime -t 2000 -s PixloadProfile:I '*:S'
+# After exact source restoration:
+./gradlew :app:testDebugUnitTest --tests com.pixload.app.PaletteDithererTest --tests com.pixload.app.PaletteLookupDithererTest --tests com.pixload.app.FastGifEncoderTest --console=plain
+./gradlew :shared:testAndroidHostTest :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest --console=plain
+# Reinstall BOTH restored APKs with the guards above, then:
+"$ADB" -s "$DEVICE" shell am instrument -w -r -e class com.pixload.app.UgoiraConverterTest,com.pixload.app.IndexedGifWriterTest com.pixload.app.test/androidx.test.runner.AndroidJUnitRunner
+```
+
+Initial full build: `BUILD SUCCESSFUL in 17s`, 1 executed / 84 up-to-date; shared and app test tasks were cached. Temporary identity-test build: 8s; phase-probed APK build: 9s. Every benchmark reported `OK (1 test)` (runner times 3.504/3.551/3.482 and 3.824/3.480/3.521 s). Restored focused JVM: `BUILD SUCCESSFUL in 4s`, 8 tests executed, zero failures/errors/skips. Final full build: `BUILD SUCCESSFUL in 3s`, 10 executed / 75 up-to-date; app JVM ran 125 tests with zero failures/errors/skips, shared host tests remained up-to-date. Restored device contracts: `OK (16 tests)` in 3.255 s. No command failed and no correction batch was needed. Diagnostic-only work has no behavioral RED/GREEN claim.
+
+Both source files were restored with surgical edits after comparison against saved diagnostic snapshots. `cmp` succeeded, SHA-256 matched their pre-edit snapshots, and `git diff --exit-code --` on both paths was empty **before** the final checks. `GifConversion.kt`: `7a15e4d06e74ac07b30cd5721ca1d92171b28dd1ca09d774e79985a999cc1339`; `GifPhase1BenchmarkTest.java`: `352237a05555be3804d99dea83750a150ac2b064303ad17ee61f1ba4a42d019a`. The final installed app and test APKs were rebuilt from restored source, not the probed source.
+
+Retained host scratch: `/tmp/opencode/gif-indexed-profile-X085t8/`. It contains `diagnostic.patch`, original/probed source snapshots, build/install/service logs, six runner/logcat logs, `baseline-{1,2,3}.{zip,gif}`, `probed-{1,2,3}.{zip,gif}`, reconstructed `frames.json`, `measurements.json`, `artifact-validation.json`, focused test XML, source/APK hashes and ffprobe/full-decode evidence. `measurements.json` maps every run to its exact retained device ZIP/GIF under `/data/user/0/com.pixload.app/cache/pixload-benchmark-*`; these synthetic files and host scratch were not deleted. Probe timing reproduction requires the retained patch; no diagnostic source ships. `mem_save` is unavailable; evidence is recorded here and in `odd/tasks/gif-indexed-phase-profile.md`.
+
 ## Fase 0 — Square original, JPEG 960 × 540, un fotograma
 
 | Fase | Tiempo observado |
@@ -59,10 +136,10 @@ El límite de fps descarta imágenes intermedias cuando es necesario, pero el re
 
 ## Riesgos y casos límite
 
-- **Miles de frames**: muchas lecturas de ZIP y GIFs grandes; no se retienen todos los bitmaps, pero Square sigue creando objetos `Color` para cada frame y la CPU/GC puede aumentar notablemente.
+- **Many frames**: ZIP reads, indexed dithering and GIF size still scale with kept frames. The current production path reuses ARGB/index buffers and does not build a Square `Color` grid per frame; Square remains in sampled-palette construction.
 - **Poca RAM**: JPEG comprimido se lee en un array acotado a 40 MiB para `ImageDecoder` (Android 28+), más bitmap, buffer de píxeles, tabla y estructuras de Square; el PSS del equipo de prueba no garantiza caber en otros teléfonos. En Android 26–27 se usa `BitmapFactory.inSampleSize` (a veces reduce más de lo solicitado para no decodificar primero a tamaño completo).
 - **Delays bajos**: GIF ofrece centésimas, no milisegundos. Los frames que exceden el límite FPS se descartan manteniendo duración acumulada; si la duración total es <10 ms, un GIF con al menos una imagen necesita un retardo mínimo y puede existir desfase inevitable. Un único frame con delay >655 350 ms excede el campo GIF de 16 bits y se trunca.
 - **Calidad**: RGB con 256 colores por frame, sin transparencia en Square; una paleta global puede perder colores de escenas no presentes en los frames muestreados. LUT de 5 bits/canal aproxima vecino más cercano y puede crear contornos en gradientes. MAE sintético no sustituye la comparación visual de obras Pixiv en el teléfono del usuario.
-- **Cancelación**: el LZW de terceros no expone interrupción dentro del fotograma; se atiende al concluirlo. El resultado incompleto SAF no se expone como descarga completada; revisar residuos si se interrumpe el proceso.
+- **Cancellation**: current indexed dithering checks interruption per row and primitive LZW checks every 4096 symbols; sampling/decoding has its existing checks. Incomplete SAF output is not recorded as a completed download; process interruption can still leave residues.
 
 Reproducción: `./gradlew :app:assembleDebugAndroidTest`, instalar ambas APK solo si `DownloadService` está inactivo y ejecutar `adb shell am instrument -w -r com.pixload.app.test/androidx.test.runner.AndroidJUnitRunner`. Para pruebas aisladas: `-e class com.pixload.app.GifBaselineProfileTest` y `-e class com.pixload.app.GifPhase1BenchmarkTest`.
