@@ -6,6 +6,40 @@ Concurrency follow-up: [closed partial profile and sequential palette-variation 
 
 Equipo: motorola edge 30 pro, heap máximo Android 512 MiB. Las pruebas instrumentadas generan JPEG a partir de gradientes RGB; **no** son descargas de Pixiv ni una evaluación visual de una obra real. El ZIP y los GIF se escriben en caché durante los benchmarks; la aplicación sigue guardando descargas en la carpeta SAF elegida. El codificador corre en el ejecutor de `DownloadService`, no en el hilo principal. Se usó `System.nanoTime()` para medir cada fase de una copia *solo de prueba* del código fuente de Square gifencoder 0.10.1 (`app/src/androidTest/java/com/pixload/bench/square/`).
 
+## Deterministic palettes — Android functional subproof (2026-11-06)
+
+**17/17 synthetic functional tests passed; final acceptance remains pending.** One filtered instrumentation invocation executed 13 GIF methods from `UgoiraConverterTest` and all four `IndexedGifWriterTest` cases. No MP4-only test, benchmark, baseline reinstall or retry ran. ADB exited 0; parsed per-test completion codes were all 0, with zero failures/errors/skips, runner summary `OK (17 tests)` and final `INSTRUMENTATION_CODE: -1`. Runner duration was 4.204 s, not a paired performance measurement.
+
+Parent spot-check: after independently confirming package-scoped services still reported `(nothing)`, the same 17-test filter ran once more and passed 17/17, exit 0, without source/APK changes or reinstall. Raw output and parsed results are retained as `parent-functional-spotcheck.log` / `.json` in the evidence root below. This was a verification run, not a retry of a failure or a performance comparison.
+
+The sole authorized wireless binding was `adb-ZY22H65ZBW-ja0hNt._adb-tls-connect._tcp`. Read-only identity checks returned Motorola edge 30 pro, product `hiphi_g`, device `hiphi`, SDK 34. Existing and post-install app identity was `com.pixload.app`, versionCode 6 / versionName 0.6.0; the installed runner was `com.pixload.app.test/androidx.test.runner.AndroidJUnitRunner`, targeting that app.
+
+`dumpsys activity services com.pixload.app` reported `(nothing)` initially, immediately before each install, and after the tests. Source inspection confirmed that `DownloadService` owns the job executor, enters foreground for pending work and stops when empty. Both in-place installs exited 0 / `Success`; `-r` preserved existing app data, with `-t` for the test APK. No uninstall, clear, downgrade, permission grant, force-stop, global setting change, reconnection or user-content inspection was used.
+
+| APK verified before installation | SHA-256 |
+| --- | --- |
+| `app/build/outputs/apk/debug/app-debug.apk` | `e2ea42cb7bd50d76da6796befc303c6b41aa3495291249a623a3dab26c94fd76` |
+| `app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk` | `91856343854b31895376ff3667ffb42a224bde706681f1a805df58be3195975d` |
+
+Exact commands, with the filter quoted as one argument:
+
+```sh
+ADB=/home/jhonan/Android/Sdk/platform-tools/adb
+DEVICE=adb-ZY22H65ZBW-ja0hNt._adb-tls-connect._tcp
+"$ADB" -s "$DEVICE" shell dumpsys activity services com.pixload.app
+"$ADB" -s "$DEVICE" install -r app/build/outputs/apk/debug/app-debug.apk
+"$ADB" -s "$DEVICE" shell dumpsys activity services com.pixload.app
+"$ADB" -s "$DEVICE" install -r -t app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+FILTER='com.pixload.app.UgoiraConverterTest#convertsToAnimatedGif,com.pixload.app.UgoiraConverterTest#decodesAnimatedGifWithChangingColors,com.pixload.app.UgoiraConverterTest#gifPreservesColorsInsideCoarsePaletteBuckets,com.pixload.app.UgoiraConverterTest#convertsGradientWithMoreThan256Colors,com.pixload.app.UgoiraConverterTest#qualityPreservesNearbyPaletteColors,com.pixload.app.UgoiraConverterTest#fastAndBalancedEncodingRemainStable,com.pixload.app.UgoiraConverterTest#balancedGifIsRepeatableAcrossIndependentConversions,com.pixload.app.UgoiraConverterTest#qualityGifIsRepeatableAcrossIndependentConversions,com.pixload.app.UgoiraConverterTest#convertsFullSizeColorfulGif,com.pixload.app.UgoiraConverterTest#gifPreservesResolutionNearSizeLimit,com.pixload.app.UgoiraConverterTest#gifAccumulatesVariableDelayRounding,com.pixload.app.UgoiraConverterTest#gifCapsFrameRateWithoutChangingTotalDuration,com.pixload.app.UgoiraConverterTest#gifCancellationIsCooperativeBeforeSampling,com.pixload.app.IndexedGifWriterTest'
+"$ADB" -s "$DEVICE" shell am instrument -w -r -e class "$FILTER" com.pixload.app.test/androidx.test.runner.AndroidJUnitRunner
+```
+
+Both `balancedGifIsRepeatableAcrossIndependentConversions` and `qualityGifIsRepeatableAcrossIndependentConversions` passed their sequential/two-worker byte comparisons, small/>256-color synthetic fixtures, 64×64/200 ms decode/frame-change assertions and exact progress sequence. The unchanged `fastAndBalancedEncodingRemainStable` passed both original decoded SHA-256 baselines: FAST `4b11c2ecb49a080386a5165ea8ebc45ededab9a37dee07cb963bf7a9cd3d3c6a`, BALANCED `4f150c6c9249e8de8998e544792126882b01b4279e512c2f776e4dcd69896357`. Nearby-color, gradient, scaling, timing and cooperative cancellation cases passed. All writer cases passed fixed-palette Square pixel/timing parity, dictionary growth/reset decoding, rejected-input/interruption and caller-stream failure/ownership contracts.
+
+Evidence retained for parent cleanup: `/tmp/opencode/palette-android-k6OLhK/`, including exact command/exit metadata, raw runner output, `functional-results.json`, APK/source hashes and service/package checks. No production/test source, assertions, dependencies or APKs were changed or rebuilt; only this report and the task status/log were edited. Installed skills resolved through native `skill://` identifiers (`ponytail`, `find-docs`, `context7-mcp`, `cognitive-doc-design`); `mem_save` is not mounted. Current official [ADB](https://developer.android.com/tools/adb) and [runner](https://developer.android.com/reference/kotlin/androidx/test/runner/AndroidJUnitRunner) documentation was queried through Context7.
+
+**Still unverified:** visual quality on real artwork, paired baseline/current conversion time and memory, and cross-device behavior. Synthetic `Movie` assertions establish only their explicit contracts. The earlier closed PARTIAL decoded-parity investigation remains unchanged; this functional subproof does not close T3 or accept the whole feature.
+
 ## Deterministic BALANCED/QUALITY palettes — host proof (2026-11-05)
 
 **PC implementation verified; Android acceptance PENDING.** BALANCED and QUALITY now use an app-local adaptation of Square gifencoder 0.10.1 median cut, retaining its Apache-2.0 copyright/license header and existing license asset. Both presets canonically order the <=256-color bypass too. FAST still uses the original UniformQuantizer and original output order.
@@ -41,7 +75,7 @@ Those probes are now durable Kotlin regressions in `DeterministicMedianCutQuanti
 
 Evidence/scratch retained outside the worktree: `/tmp/opencode/deterministic-palettes-50qkj0qn/` (command logs, RED/final XML, baseline source, compiler/probe sources and outputs). Regression persistence added `durable-regression-focused.log`, `durable-regression-full.log` and `regression-port-*` XML directories there; the independent verifier root `/tmp/opencode/palette-host-verifier-xg9awc/` is untouched. An initial isolated compiler attempt lacked Kotlin friend visibility; an initial probe incorrectly required old >256-color quantization to repeat. Both earlier harness issues were corrected and retained in logs; no required Gradle command had an unexpected failure. No separate production refactor followed GREEN.
 
-**Pending phone proof:** two additive `UgoiraConverterTest` cases cover BALANCED/QUALITY sequential and concurrent conversions of small-palette and >256-color two-frame PNG inputs, exact GIF bytes, decode dimensions/duration/frame changes and progress. They are compiled only. Existing Android assertions/digests are unchanged and unexecuted here. Notify the user before reconnecting or using a phone; Android execution, decoded/visual quality and paired conversion time/memory measurements remain pending. No performance, memory or cross-device guarantee is claimed.
+**Phone proof update:** the two additive BALANCED/QUALITY repeatability cases and unchanged Android assertions/digests passed in the dated functional subproof above. Visual quality on real artwork and paired conversion time/memory remain pending; no performance, memory or cross-device guarantee is claimed.
 
 ## Indexed LUT index cache — accepted measurement (2026-11-04)
 
