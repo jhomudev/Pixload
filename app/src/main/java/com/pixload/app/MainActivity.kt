@@ -757,7 +757,10 @@ open class MainActivity : Activity() {
                     pendingSlideDirection = if (event.rawX < swipeStartX) 1 else -1
                 } else if (slideNeighbor != null) {
                     moveSlide(event.rawX - swipeStartX)
-                    settleSlide(kotlin.math.abs(slideCurrent!!.translationX) > slideCurrent!!.width * .22f)
+                    // A deliberate short image swipe must change page without dragging across
+                    // the viewport; keep a density-independent floor above system touch jitter.
+                    val commitDistance = maxOf(Ui.dp(this, 24f), 2 * ViewConfiguration.get(this).scaledTouchSlop)
+                    settleSlide(kotlin.math.abs(slideCurrent!!.translationX) > commitDistance.toFloat())
                 } else {
                     val direction = if (event.rawX < swipeStartX) 1 else -1
                     if (galleryFullscreen) {

@@ -37,6 +37,12 @@ android {
     }
 
     buildTypes {
+        debug {
+            // Opt-in identity for fullscreen UI fixtures that must not touch the installed app's data.
+            if (project.hasProperty('pixloadIsolatedUiTests') && project.property('pixloadIsolatedUiTests') == 'true') {
+                applicationIdSuffix '.uitest'
+            }
+        }
         release {
             if (releaseSigningReady) signingConfig signingConfigs.release
         }

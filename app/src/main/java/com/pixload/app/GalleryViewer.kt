@@ -64,13 +64,11 @@ internal object GalleryViewer {
                 true
             }
             video.setVideoURI(item.uri)
-            val play = Ui.button(activity, "Reproducir vídeo en bucle", R.drawable.tabler_player_play,
-                true, Runnable { video.start() })
-            if (height == -1) {
-                val playParams = FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL)
-                playParams.bottomMargin = Ui.dp(activity, 20f)
-                frame.addView(play, playParams)
-            } else {
+            if (height != -1) {
+                // Fullscreen leaves the native media controls only; the standalone start button
+                // would sit over the video and hint at an autoplay mode that does not exist.
+                val play = Ui.button(activity, "Reproducir vídeo en bucle", R.drawable.tabler_player_play,
+                    true, Runnable { video.start() })
                 Ui.gap(container, activity, 10)
                 container.addView(play)
             }

@@ -11,11 +11,17 @@ import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import android.widget.VideoView;
 
 import androidx.test.core.app.ActivityScenario;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
+import androidx.test.platform.app.InstrumentationRegistry;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
 import org.junit.After;
+import org.junit.Assume;
+import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
@@ -27,12 +33,21 @@ import java.util.Arrays;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
 import static org.junit.Assert.*;
 
 @RunWith(AndroidJUnit4.class)
 public class MainActivityFullscreenSlideTest {
     private File fixtureDirectory;
+
+    @Before public void requireIsolatedTargetPackage() {
+        String target = InstrumentationRegistry.getInstrumentation().getTargetContext().getPackageName();
+        Assume.assumeTrue("Fullscreen fixtures require the isolated com.pixload.app.uitest app; "
+                        + "build and install with -PpixloadIsolatedUiTests=true. Found: " + target,
+                "com.pixload.app.uitest".equals(target));
+    }
 
     @After public void removeFixtureFiles() { cleanup(); }
     @Test public void imagesFollowFingerThenSnapBackOrAdvanceWithoutMovingChrome() throws Exception {
@@ -291,6 +306,138 @@ public class MainActivityFullscreenSlideTest {
         }
     }
 
+    @Test public void shortHorizontalSwipeAdvancesBothDirections() throws Exception {
+        try (ActivityScenario<MainActivity> scenario = ActivityScenario.launch(MainActivity.class)) {
+            scenario.onActivity(activity -> {
+                try { fixture(activity, true); } catch (Exception error) { throw new AssertionError(error); }
+            });
+            awaitSlideLayout(scenario);
+            scenario.onActivity(activity -> {
+                FrameLayout overlay = overlay(activity);
+                View current = overlay.getChildAt(0);
+                float drag = Ui.dp(activity, 48f);
+                assertTrue("48 dp must be shorter than the old release threshold of 22% of the viewport",
+                        drag < current.getWidth() * .22f);
+                swipe(activity, current, -drag);
+            });
+            SystemClock.sleep(500);
+            scenario.onActivity(activity -> {
+                assertNotNull("A short forward swipe must advance to the next image",
+                        findText(activity.findViewById(android.R.id.content), "slide-second.png"));
+                FrameLayout overlay = overlay(activity);
+                View current = overlay.getChildAt(0);
+                assertTrue("Second image must be laid out before reversing", current.getWidth() > 0);
+                float drag = Ui.dp(activity, 48f);
+                assertTrue(drag < current.getWidth() * .22f);
+                swipe(activity, current, drag);
+            });
+            SystemClock.sleep(500);
+            scenario.onActivity(activity -> {
+                assertNotNull("A short reverse swipe must return to the previous image",
+                        findText(activity.findViewById(android.R.id.content), "slide-first.png"));
+                cleanup();
+            });
+        }
+    }
+
+    @Test public void tapAndJitterKeepCurrentImage() throws Exception {
+        try (ActivityScenario<MainActivity> scenario = ActivityScenario.launch(MainActivity.class)) {
+            scenario.onActivity(activity -> {
+                try { fixture(activity); } catch (Exception error) { throw new AssertionError(error); }
+            });
+            awaitSlideLayout(scenario);
+            scenario.onActivity(activity -> {
+                FrameLayout overlay = overlay(activity);
+                View current = overlay.getChildAt(0);
+                int[] position = new int[2];
+                current.getLocationOnScreen(position);
+                float x = position[0] + current.getWidth() / 2f;
+                float y = position[1] + current.getHeight() / 2f;
+                float jitter = Ui.dp(activity, 2f);
+                long start = SystemClock.uptimeMillis();
+                touch(activity, start, start, MotionEvent.ACTION_DOWN, x, y);
+                touch(activity, start, start + 15, MotionEvent.ACTION_MOVE, x + jitter, y);
+                touch(activity, start, start + 30, MotionEvent.ACTION_UP, x + jitter, y);
+            });
+            SystemClock.sleep(400);
+            scenario.onActivity(activity -> {
+                assertNotNull("A tap with sub-slop jitter must keep the current image",
+                        findText(activity.findViewById(android.R.id.content), "slide-first.png"));
+                FrameLayout overlay = overlay(activity);
+                assertEquals(2, mediaCount(overlay));
+                assertEquals(0f, overlay.getChildAt(0).getTranslationX(), 0f);
+                cleanup();
+            });
+        }
+    }
+
+    @Test public void mp4FullscreenHidesStandalonePlayButton() throws Exception {
+        try (ActivityScenario<MainActivity> scenario = ActivityScenario.launch(MainActivity.class)) {
+            scenario.onActivity(activity -> {
+                try { mp4Fixture(activity); } catch (Exception error) { throw new AssertionError(error); }
+            });
+            scenario.onActivity(activity -> {
+                View root = activity.findViewById(android.R.id.content);
+                assertNotNull("Fullscreen video branch must render a VideoView", findVideo(root));
+                assertNull("Fullscreen MP4 must not show the standalone loop-play button",
+                        findByContentDescription(root, "Reproducir vídeo en bucle"));
+            });
+            scenario.onActivity(activity -> {
+                try {
+                    set(activity, "galleryFullscreen", false);
+                    render(activity);
+                } catch (Exception error) { throw new AssertionError(error); }
+            });
+            scenario.onActivity(activity -> {
+                assertNotNull("Embedded video must keep its standalone play button",
+                        findByContentDescription(activity.findViewById(android.R.id.content),
+                                "Reproducir vídeo en bucle"));
+                cleanup();
+            });
+        }
+    }
+
+    private static FrameLayout overlay(MainActivity activity) {
+        ViewGroup shell = (ViewGroup) ((ViewGroup) activity.findViewById(android.R.id.content)).getChildAt(0);
+        return (FrameLayout) shell.getChildAt(0);
+    }
+
+    private static void swipe(MainActivity activity, View target, float dx) {
+        int[] position = new int[2];
+        target.getLocationOnScreen(position);
+        float x = position[0] + target.getWidth() / 2f;
+        float y = position[1] + target.getHeight() / 2f;
+        long start = SystemClock.uptimeMillis();
+        touch(activity, start, start, MotionEvent.ACTION_DOWN, x, y);
+        touch(activity, start, start + 20, MotionEvent.ACTION_MOVE, x + dx, y);
+        touch(activity, start, start + 40, MotionEvent.ACTION_UP, x + dx, y);
+    }
+
+    private static View findVideo(View view) {
+        if (view instanceof VideoView) return view;
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                View found = findVideo(group.getChildAt(i));
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+
+    private static View findByContentDescription(View view, String description) {
+        if (view.getContentDescription() != null && description.contentEquals(view.getContentDescription()))
+            return view;
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                View found = findByContentDescription(group.getChildAt(i), description);
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+
     private static void awaitSlideLayout(ActivityScenario<MainActivity> scenario) throws Exception {
         CountDownLatch laidOut = new CountDownLatch(1);
         scenario.onActivity(activity -> {
@@ -325,9 +472,51 @@ public class MainActivityFullscreenSlideTest {
         render.invoke(activity);
     }
 
+    private void mp4Fixture(MainActivity activity) throws Exception {
+        fixtureDirectory = Files.createTempDirectory(activity.getCacheDir().toPath(), "fullscreen-mp4-").toFile();
+        File output = new File(fixtureDirectory, "result.mp4");
+        syntheticMp4(fixtureDirectory, output);
+        set(activity, "tab", 2);
+        set(activity, "galleryEntry", new GalleryStore.Entry(Uri.fromFile(output).toString(),
+                "Fixture video", "video/mp4", "", false, 1, 0));
+        set(activity, "galleryItems", new java.util.ArrayList<>(Arrays.asList(
+                new GalleryDocuments.Item(Uri.fromFile(output), output.getName(), "video/mp4"))));
+        set(activity, "galleryFullscreen", true);
+        render(activity);
+    }
+
+    private static void syntheticMp4(File directory, File output) throws Exception {
+        File archive = new File(directory, "synthetic.zip");
+        try (ZipOutputStream zip = new ZipOutputStream(new FileOutputStream(archive))) {
+            String[] names = {"red.jpg", "blue.jpg"};
+            int[] colors = {Color.RED, Color.BLUE};
+            for (int i = 0; i < names.length; i++) {
+                Bitmap bitmap = Bitmap.createBitmap(16, 16, Bitmap.Config.ARGB_8888);
+                try {
+                    bitmap.eraseColor(colors[i]);
+                    zip.putNextEntry(new ZipEntry(names[i]));
+                    assertTrue(bitmap.compress(Bitmap.CompressFormat.JPEG, 88, zip));
+                    zip.closeEntry();
+                } finally { bitmap.recycle(); }
+            }
+        }
+        JSONArray frames = new JSONArray()
+                .put(new JSONObject().put("file", "red.jpg").put("delay", 100))
+                .put(new JSONObject().put("file", "blue.jpg").put("delay", 100));
+        UgoiraConverter.mp4(archive, frames, output, (done, total) -> { });
+        assertTrue("Synthetic MP4 fixture must be produced", output.isFile() && output.length() > 0);
+    }
+
+    private static void render(MainActivity activity) throws Exception {
+        java.lang.reflect.Method render = MainActivity.class.getDeclaredMethod("render");
+        render.setAccessible(true);
+        render.invoke(activity);
+    }
+
     private void cleanup() {
         if (fixtureDirectory == null) return;
-        for (String name : Arrays.asList("slide-first.png", "slide-second.png", "slide-third.png")) {
+        for (String name : Arrays.asList("slide-first.png", "slide-second.png", "slide-third.png",
+                "result.mp4", "synthetic.zip")) {
             File file = new File(fixtureDirectory, name);
             if (file.exists()) assertTrue(file.delete());
         }
