@@ -11,7 +11,7 @@ S4. Device validation of the two viewer fixes is the user's own evidence ("funci
 ## Tasks
 T1 [S1-S4] inline, done: version metadata 7/0.7.0 and release record. Commit 4ea0ebe.
 T2 [S1-S4] inline, done: host tests, signed release APK build, artifact verification.
-T3 [S1-S4] inline, pending: push develop, fast-forward main, annotated tag v0.7.0, GitHub release with asset verification.
+T3 [S1-S4] inline, done: push develop, fast-forward main, annotated tag v0.7.0, GitHub release with asset verification. Published at 17e2201.
 
 ## Log
 L1. Original request verbatim: "Bien, funciona bien. ahora haz push tanto a develop como a master y luego un despliegue nuevo."
@@ -20,3 +20,4 @@ L3. Release candidate is the 33 commits between main and develop (47 files, 4417
 L4. Verification: `:shared:testAndroidHostTest` 24 tests and `:app:testDebugUnitTest` 142 tests, all with 0 failures and 0 errors; `:shared:testAndroidHostTest :app:testDebugUnitTest :app:assembleDebug :app:assembleRelease` reported BUILD SUCCESSFUL.
 L5. Signed release artifact: `app/build/outputs/apk/release/app-release.apk`, 3375667 bytes, versionCode 7, versionName 0.7.0, SHA-256 46910205036483d4e33fa9defdba63931e632cd44b54bf6937ceffae24598b91. APK Signature Scheme v2 verifies; signer certificate SHA-256 7ccc0f876b4295dac0eaa5de572500decc1c6e2a44610ebd8286a3a6a45d2127 matches v0.6.0.
 L6. Review gate: assess over the unreviewed unit 18c710f..HEAD (viewer fixes, evidence, release metadata) reported medium risk and `review_due: false` with reason `under_budget` (7 paths, 278 lines), so no native review ran. Assess over the whole branch origin/main..HEAD reported high only because of the versioned `opencode.json` process boundary; that tooling file was reviewed during v0.6.0 and no review transaction was created for this release.
+L7. Publication: one atomic push moved develop 18c710f..17e2201, main 8069398..17e2201 and created annotated tag v0.7.0 at 17e2201 (tag object c216362eca6dd3c70ccfab94d0e352e2ca517143). GitHub release v0.7.0 is public, not a draft, not a prerelease, reports as the latest release, targets main, and carries `Pixload-v0.7.0.apk` at 3375667 bytes. The downloaded asset reports SHA-256 46910205036483d4e33fa9defdba63931e632cd44b54bf6937ceffae24598b91, versionCode 7, versionName 0.7.0, and signer SHA-256 7ccc0f876b4295dac0eaa5de572500decc1c6e2a44610ebd8286a3a6a45d2127, matching the built artifact.
