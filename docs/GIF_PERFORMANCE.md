@@ -8,7 +8,7 @@ Equipo: motorola edge 30 pro, heap máximo Android 512 MiB. Las pruebas instrume
 
 ## Deterministic palettes — Android functional subproof (2026-11-06)
 
-**17/17 synthetic functional tests passed; final acceptance remains pending.** One filtered instrumentation invocation executed 13 GIF methods from `UgoiraConverterTest` and all four `IndexedGifWriterTest` cases. No MP4-only test, benchmark, baseline reinstall or retry ran. ADB exited 0; parsed per-test completion codes were all 0, with zero failures/errors/skips, runner summary `OK (17 tests)` and final `INSTRUMENTATION_CODE: -1`. Runner duration was 4.204 s, not a paired performance measurement.
+**17/17 synthetic functional tests passed; remaining measurements stopped at the user's request.** One filtered instrumentation invocation executed 13 GIF methods from `UgoiraConverterTest` and all four `IndexedGifWriterTest` cases. No MP4-only test, benchmark, baseline reinstall or retry ran. ADB exited 0; parsed per-test completion codes were all 0, with zero failures/errors/skips, runner summary `OK (17 tests)` and final `INSTRUMENTATION_CODE: -1`. Runner duration was 4.204 s, not a paired performance measurement.
 
 Parent spot-check: after independently confirming package-scoped services still reported `(nothing)`, the same 17-test filter ran once more and passed 17/17, exit 0, without source/APK changes or reinstall. Raw output and parsed results are retained as `parent-functional-spotcheck.log` / `.json` in the evidence root below. This was a verification run, not a retry of a failure or a performance comparison.
 
@@ -40,9 +40,11 @@ Evidence retained for parent cleanup: `/tmp/opencode/palette-android-k6OLhK/`, i
 
 **User-directed omission (2026-11-06):** the user asked to skip the real-artwork comparison and move to the next work. That comparison was not performed and has no quality verdict. Paired baseline/current conversion time and memory, and cross-device behavior, remain unmeasured; further measurement needs an explicit scope. Synthetic `Movie` assertions establish only their explicit contracts. The earlier closed PARTIAL decoded-parity investigation remains unchanged.
 
+**Closure (2026-11-06):** the user subsequently stopped all improvement/measurement work and requested publication of the verified changes to develop. The proposed synthetic paired benchmark was not executed. Delivery includes the observed host and Android functional evidence, not a visual-quality, time or memory improvement claim for deterministic palettes.
+
 ## Deterministic BALANCED/QUALITY palettes — host proof (2026-11-05)
 
-**PC implementation verified; Android acceptance PENDING.** BALANCED and QUALITY now use an app-local adaptation of Square gifencoder 0.10.1 median cut, retaining its Apache-2.0 copyright/license header and existing license asset. Both presets canonically order the <=256-color bypass too. FAST still uses the original UniformQuantizer and original output order.
+**PC implementation and synthetic Android functionality verified; visual/performance comparisons not completed.** BALANCED and QUALITY now use an app-local adaptation of Square gifencoder 0.10.1 median cut, retaining its Apache-2.0 copyright/license header and existing license asset. Both presets canonically order the <=256-color bypass too. FAST still uses the original UniformQuantizer and original output order.
 
 Local implementation commit: `c7199de`. The user-consented native risk/readability/reliability review reported no findings and its exact acknowledgement completed. This review does not establish the pending Android, visual or paired-performance acceptance.
 
