@@ -9,7 +9,7 @@ import com.squareup.gifencoder.Color
 import com.squareup.gifencoder.Ditherer
 import com.squareup.gifencoder.HashMultiset
 import com.squareup.gifencoder.Image
-import com.squareup.gifencoder.MedianCutQuantizer
+import com.squareup.gifencoder.Multiset
 import com.squareup.gifencoder.UniformQuantizer
 import org.json.JSONArray
 import java.io.ByteArrayOutputStream
@@ -48,11 +48,7 @@ internal object GifConversion {
                     }
                 } finally { bitmap.recycle() }
             }
-            val palette: MutableSet<Color> = when {
-                preset == GifPreset.FAST -> LinkedHashSet(UniformQuantizer.INSTANCE.quantize(samples, 256))
-                samples.distinctElements.size <= 256 -> LinkedHashSet(samples.distinctElements)
-                else -> LinkedHashSet(MedianCutQuantizer.INSTANCE.quantize(samples, 256))
-            }
+            val palette = selectPalette(samples, preset)
             val ditherer = PaletteLookupDitherer(palette, preset.diffuse, preset == GifPreset.QUALITY)
             val first = decode(zip, frames.getJSONObject(0).getString("file"), preset.maxWidth)
             val width = first.width
@@ -93,6 +89,12 @@ internal object GifConversion {
             }
             encoder.finish()
         }
+    }
+
+    internal fun selectPalette(samples: Multiset<Color>, preset: GifPreset,
+                               maxColorCount: Int = 256): MutableSet<Color> = when {
+        preset == GifPreset.FAST -> LinkedHashSet(UniformQuantizer.INSTANCE.quantize(samples, maxColorCount))
+        else -> DeterministicMedianCutQuantizer.INSTANCE.quantize(samples, maxColorCount)
     }
 
     private fun decode(zip: ZipFile, name: String, maxWidth: Int): Bitmap {

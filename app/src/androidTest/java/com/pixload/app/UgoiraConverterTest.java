@@ -232,6 +232,71 @@ public class UgoiraConverterTest {
         } finally { archive.delete(); }
     }
 
+    @Test public void balancedGifIsRepeatableAcrossIndependentConversions() throws Exception {
+        assertRepeatableConversions(GifPreset.BALANCED);
+    }
+
+    @Test public void qualityGifIsRepeatableAcrossIndependentConversions() throws Exception {
+        assertRepeatableConversions(GifPreset.QUALITY);
+    }
+
+    private void assertRepeatableConversions(GifPreset preset) throws Exception {
+        File small = archive();
+        File colorful = File.createTempFile("pixload-repeatable-", ".zip", directory);
+        try {
+            try (ZipOutputStream zip = new ZipOutputStream(new FileOutputStream(colorful))) {
+                for (int i = 0; i < 2; i++) {
+                    int[] pixels = new int[64 * 64];
+                    for (int y = 0; y < 64; y++) for (int x = 0; x < 64; x++)
+                        pixels[y * 64 + x] = Color.rgb(x * 4, y * 4, (x * 13 + y * 7 + i * 83) & 255);
+                    Bitmap bitmap = Bitmap.createBitmap(pixels, 64, 64, Bitmap.Config.ARGB_8888);
+                    try {
+                        zip.putNextEntry(new ZipEntry(String.format(java.util.Locale.ROOT, "%06d.png", i)));
+                        bitmap.compress(Bitmap.CompressFormat.PNG, 100, zip);
+                        zip.closeEntry();
+                    } finally { bitmap.recycle(); }
+                }
+            }
+            for (File input : new File[]{small, colorful}) {
+                byte[] reference = repeatabilityConversion(input, preset);
+                org.junit.Assert.assertArrayEquals(reference, repeatabilityConversion(input, preset));
+                java.util.concurrent.ExecutorService executor = java.util.concurrent.Executors.newFixedThreadPool(2);
+                try {
+                    java.util.concurrent.Callable<byte[]> conversion = () -> repeatabilityConversion(input, preset);
+                    java.util.concurrent.Future<byte[]> first = executor.submit(conversion);
+                    java.util.concurrent.Future<byte[]> second = executor.submit(conversion);
+                    org.junit.Assert.assertArrayEquals(reference, first.get(30, java.util.concurrent.TimeUnit.SECONDS));
+                    org.junit.Assert.assertArrayEquals(reference, second.get(30, java.util.concurrent.TimeUnit.SECONDS));
+                } finally { executor.shutdownNow(); }
+                Movie movie = Movie.decodeByteArray(reference, 0, reference.length);
+                assertTrue(movie != null);
+                assertEquals(64, movie.width());
+                assertEquals(64, movie.height());
+                assertEquals(200, movie.duration());
+                Bitmap decoded = Bitmap.createBitmap(64, 64, Bitmap.Config.ARGB_8888);
+                try {
+                    movie.setTime(50);
+                    movie.draw(new Canvas(decoded), 0, 0);
+                    int firstPixel = decoded.getPixel(24, 24);
+                    movie.setTime(150);
+                    movie.draw(new Canvas(decoded), 0, 0);
+                    assertTrue(firstPixel != decoded.getPixel(24, 24));
+                } finally { decoded.recycle(); }
+            }
+        } finally {
+            small.delete();
+            colorful.delete();
+        }
+    }
+
+    private byte[] repeatabilityConversion(File input, GifPreset preset) throws Exception {
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        java.util.List<String> progress = new java.util.ArrayList<>();
+        UgoiraConverter.gif(input, frames(), output, (done, total) -> progress.add(done + ":" + total), preset);
+        assertEquals(java.util.Arrays.asList("0:2", "1:2", "2:2"), progress);
+        return output.toByteArray();
+    }
+
     @Test public void convertsFullSizeColorfulGif() throws Exception {
         File archive = File.createTempFile("pixload-fullsize-", ".zip", directory);
         try {

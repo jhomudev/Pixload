@@ -6,6 +6,41 @@ Concurrency follow-up: [closed partial profile and sequential palette-variation 
 
 Equipo: motorola edge 30 pro, heap máximo Android 512 MiB. Las pruebas instrumentadas generan JPEG a partir de gradientes RGB; **no** son descargas de Pixiv ni una evaluación visual de una obra real. El ZIP y los GIF se escriben en caché durante los benchmarks; la aplicación sigue guardando descargas en la carpeta SAF elegida. El codificador corre en el ejecutor de `DownloadService`, no en el hilo principal. Se usó `System.nanoTime()` para medir cada fase de una copia *solo de prueba* del código fuente de Square gifencoder 0.10.1 (`app/src/androidTest/java/com/pixload/bench/square/`).
 
+## Deterministic BALANCED/QUALITY palettes — host proof (2026-11-05)
+
+**PC implementation verified; Android acceptance PENDING.** BALANCED and QUALITY now use an app-local adaptation of Square gifencoder 0.10.1 median cut, retaining its Apache-2.0 copyright/license header and existing license asset. Both presets canonically order the <=256-color bypass too. FAST still uses the original UniformQuantizer and original output order.
+
+The largest channel spread still wins, with R/G/B channel tie priority. Split sorting compares the exact selected component, then exact R/G/B; the median is floor(total occurrences / 2), including repeated colors crossing the boundary. Equal-spread clusters use invocation-local creation order (root, then left/right). Centroids accumulate canonically sorted distinct colors with their original counts using Square's unchanged `Color.scaled`, `plus` and final reciprocal scaling. Exact duplicate centroids are removed and the final palette is lexicographically ordered without rounding through RGB bytes. There is no shared mutable tie state or lock.
+
+Some selected colors and nearest-color tie outcomes may deliberately change. Sampling, presets, dither arithmetic/LUT/cache, encoder, timing, progress, cancellation and stream ownership are unchanged. The earlier closed partial decoded-parity investigation remains partial; these host results neither prove its Android cause nor reclassify it as fixed.
+
+| PC evidence | Observed result |
+| --- | --- |
+| Existing focused compatibility before seam / after fix | 10 / 10 tests passed; no failures, errors or skips |
+| Behavioral RED on the old selection seam | 10 tests ran; 8 assertion failures, including repeatability/concurrency, exact ordering, weighted/tie oracles and a one-bit centroid difference |
+| Initial GREEN / precision / durable independent regressions | 10 / 12 / 15 tests passed |
+| Final full app host suite after regression persistence | 142 tests, no failures/errors/skips |
+| Shared host results | 24 tests, no failures/errors/skips; task up-to-date |
+| Debug application and androidTest APKs | Both compiled successfully; no installation/execution |
+
+All required commands ran foreground with existing JDK 21 / SDK 35 and cached dependencies:
+
+```sh
+./gradlew :app:testDebugUnitTest --tests com.pixload.app.DeterministicMedianCutQuantizerTest --offline --console=plain
+./gradlew :app:testDebugUnitTest --tests com.pixload.app.PaletteDithererTest --tests com.pixload.app.PaletteLookupDithererTest --tests com.pixload.app.IndependentIndexCacheTest --tests com.pixload.app.FastGifEncoderTest --offline --console=plain
+./gradlew :shared:testAndroidHostTest :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest --offline --console=plain
+```
+
+An isolated JVM runtime probe compared baseline `f25a44e` selection (with a verified behavior-preserving seam) against current production classes. Five FAST palettes matched exact ordered component bits, and their actual indexed-dither/writer GIF bytes matched. Null rejection outcomes matched; missing/unknown IDs still select BALANCED. Old >256-color median cut is not assumed repeatable when checking default dispatch. Candidate BALANCED/QUALITY palette-to-dither-to-writer smoke passed for 1/2/255/256/257 colors, each with three reverse-insertion/equal-new-instance repeats. This exercises host GIF construction, not Android decoding.
+
+Independent HOST verification reported no blockers: 139 app / 24 shared tests, both APKs, 16 FAST baseline/current exact-palette and GIF differentials, and three independent probes passed. The parent reported that the first two probes failed on baseline and passed on the candidate; the expanded three-probe suite passed on the candidate. These are separate verifier observations, not a new writer RED run.
+
+Those probes are now durable Kotlin regressions in `DeterministicMedianCutQuantizerTest`, preserving all twelve earlier cases. An expanded-occurrence/index-cut reference remains structurally independent of production's counted splits; it checks exact centroid bits, creation-order ties, shuffled equal-valued colors and original counts/references across 24 seeded trials. Explicit weighted-boundary and RGB-cube expectations validate the reference too. The integration matrix covers 0/1/2/255/256/257/513 colors, FAST/default selection and six concurrent palette-to-dither-to-two-frame-writer byte comparisons per nonempty affected preset/input. Empty palettes are checked only at selection, not passed to dithering. Writer observations after this test-only port: focused 15 tests and full 142 app tests passed, shared 24 results up-to-date, both APK tasks successful; no new RED, required failure or production change.
+
+Evidence/scratch retained outside the worktree: `/tmp/opencode/deterministic-palettes-50qkj0qn/` (command logs, RED/final XML, baseline source, compiler/probe sources and outputs). Regression persistence added `durable-regression-focused.log`, `durable-regression-full.log` and `regression-port-*` XML directories there; the independent verifier root `/tmp/opencode/palette-host-verifier-xg9awc/` is untouched. An initial isolated compiler attempt lacked Kotlin friend visibility; an initial probe incorrectly required old >256-color quantization to repeat. Both earlier harness issues were corrected and retained in logs; no required Gradle command had an unexpected failure. No separate production refactor followed GREEN.
+
+**Pending phone proof:** two additive `UgoiraConverterTest` cases cover BALANCED/QUALITY sequential and concurrent conversions of small-palette and >256-color two-frame PNG inputs, exact GIF bytes, decode dimensions/duration/frame changes and progress. They are compiled only. Existing Android assertions/digests are unchanged and unexecuted here. Notify the user before reconnecting or using a phone; Android execution, decoded/visual quality and paired conversion time/memory measurements remain pending. No performance, memory or cross-device guarantee is claimed.
+
 ## Indexed LUT index cache — accepted measurement (2026-11-04)
 
 **Accepted in `60b2ee8`:** cache the existing palette index once per non-precise LUT cell instead of looking it up by `Color` identity for every output pixel. The selected colors, diffusion arithmetic, QUALITY precise path and GIF encoder are unchanged. Empty palettes retain the old fallback behavior. This adds a 32 KiB byte table for non-precise nonempty palettes; it is not a memory-saving change.
