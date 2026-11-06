@@ -38,7 +38,7 @@ Both `balancedGifIsRepeatableAcrossIndependentConversions` and `qualityGifIsRepe
 
 Evidence retained for parent cleanup: `/tmp/opencode/palette-android-k6OLhK/`, including exact command/exit metadata, raw runner output, `functional-results.json`, APK/source hashes and service/package checks. No production/test source, assertions, dependencies or APKs were changed or rebuilt; only this report and the task status/log were edited. Installed skills resolved through native `skill://` identifiers (`ponytail`, `find-docs`, `context7-mcp`, `cognitive-doc-design`); `mem_save` is not mounted. Current official [ADB](https://developer.android.com/tools/adb) and [runner](https://developer.android.com/reference/kotlin/androidx/test/runner/AndroidJUnitRunner) documentation was queried through Context7.
 
-**Still unverified:** visual quality on real artwork, paired baseline/current conversion time and memory, and cross-device behavior. Synthetic `Movie` assertions establish only their explicit contracts. The earlier closed PARTIAL decoded-parity investigation remains unchanged; this functional subproof does not close T3 or accept the whole feature.
+**User-directed omission (2026-11-06):** the user asked to skip the real-artwork comparison and move to the next work. That comparison was not performed and has no quality verdict. Paired baseline/current conversion time and memory, and cross-device behavior, remain unmeasured; further measurement needs an explicit scope. Synthetic `Movie` assertions establish only their explicit contracts. The earlier closed PARTIAL decoded-parity investigation remains unchanged.
 
 ## Deterministic BALANCED/QUALITY palettes — host proof (2026-11-05)
 
@@ -75,7 +75,7 @@ Those probes are now durable Kotlin regressions in `DeterministicMedianCutQuanti
 
 Evidence/scratch retained outside the worktree: `/tmp/opencode/deterministic-palettes-50qkj0qn/` (command logs, RED/final XML, baseline source, compiler/probe sources and outputs). Regression persistence added `durable-regression-focused.log`, `durable-regression-full.log` and `regression-port-*` XML directories there; the independent verifier root `/tmp/opencode/palette-host-verifier-xg9awc/` is untouched. An initial isolated compiler attempt lacked Kotlin friend visibility; an initial probe incorrectly required old >256-color quantization to repeat. Both earlier harness issues were corrected and retained in logs; no required Gradle command had an unexpected failure. No separate production refactor followed GREEN.
 
-**Phone proof update:** the two additive BALANCED/QUALITY repeatability cases and unchanged Android assertions/digests passed in the dated functional subproof above. Visual quality on real artwork and paired conversion time/memory remain pending; no performance, memory or cross-device guarantee is claimed.
+**Phone proof update:** the two additive BALANCED/QUALITY repeatability cases and unchanged Android assertions/digests passed in the dated functional subproof above. Real-artwork comparison is omitted at the user's request; paired conversion time/memory is unmeasured. No visual-quality, performance, memory or cross-device guarantee is claimed.
 
 ## Indexed LUT index cache — accepted measurement (2026-11-04)
 
