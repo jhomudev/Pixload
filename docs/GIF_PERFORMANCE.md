@@ -10,6 +10,8 @@ Equipo: motorola edge 30 pro, heap máximo Android 512 MiB. Las pruebas instrume
 
 **PC implementation verified; Android acceptance PENDING.** BALANCED and QUALITY now use an app-local adaptation of Square gifencoder 0.10.1 median cut, retaining its Apache-2.0 copyright/license header and existing license asset. Both presets canonically order the <=256-color bypass too. FAST still uses the original UniformQuantizer and original output order.
 
+Local implementation commit: `c7199de`. The user-consented native risk/readability/reliability review reported no findings and its exact acknowledgement completed. This review does not establish the pending Android, visual or paired-performance acceptance.
+
 The largest channel spread still wins, with R/G/B channel tie priority. Split sorting compares the exact selected component, then exact R/G/B; the median is floor(total occurrences / 2), including repeated colors crossing the boundary. Equal-spread clusters use invocation-local creation order (root, then left/right). Centroids accumulate canonically sorted distinct colors with their original counts using Square's unchanged `Color.scaled`, `plus` and final reciprocal scaling. Exact duplicate centroids are removed and the final palette is lexicographically ordered without rounding through RGB bytes. There is no shared mutable tie state or lock.
 
 Some selected colors and nearest-color tie outcomes may deliberately change. Sampling, presets, dither arithmetic/LUT/cache, encoder, timing, progress, cancellation and stream ownership are unchanged. The earlier closed partial decoded-parity investigation remains partial; these host results neither prove its Android cause nor reclassify it as fixed.
